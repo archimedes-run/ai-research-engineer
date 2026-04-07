@@ -1,0 +1,1 @@
+"""Bioinformatics-specific prompts."""
