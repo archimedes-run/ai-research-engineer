@@ -21,9 +21,6 @@ def get_claude_instructions(state: Dict[str, Any], working_dir: str) -> str:
     ----------
     state : dict
         The state dictionary containing variables for template substitution.
-        Common variables include:
-        - implementation_task: The user's request/task to implement
-        - implementation_plan: The detailed implementation plan
     working_dir : str
         The working directory path where execution will occur.
 
@@ -39,7 +36,7 @@ def get_claude_instructions(state: Dict[str, Any], working_dir: str) -> str:
         base_content = load_prompt("coding_base")
     except FileNotFoundError:
         # Fallback to a simple default
-        base_content = """You are a coding assistant. Implement the given task completely and thoroughly.
+        base_content = """You are an ML coding assistant. Implement the given task completely and thoroughly.
 
 Working directory: $working_dir
 
@@ -112,31 +109,13 @@ def get_claude_context(
 ) -> str:
     """
     Generate the initial user context/prompt for Claude with comprehensive context.
-
-    Parameters
-    ----------
-    implementation_plan : str
-        The implementation plan to execute (current stage description).
-    working_dir : str
-        The working directory path.
-    original_request : str, optional
-        The original user request for full context.
-    completed_stages : list, optional
-        List of dicts with 'stage_title' and 'implementation_summary' for completed work.
-    all_stages : list, optional
-        List of all stage dicts with 'title', 'description', and 'completed' fields.
-
-    Returns
-    -------
-    str
-        The initial user message for Claude with full context.
     """
     # Format optional context sections
     context_sections = []
 
     # 1. ANALYSIS CONTEXT SECTION
     if original_request:
-        context_sections.append("## ANALYSIS CONTEXT\n")
+        context_sections.append("## RESEARCH CONTEXT\n")
 
         # Truncate if too long
         MAX_REQUEST_LENGTH = 2000
@@ -147,7 +126,7 @@ def get_claude_context(
 
     # 2. COMPLETED WORK SECTION
     if completed_stages:
-        context_sections.append("## COMPLETED WORK\n")
+        context_sections.append("## COMPLETED STAGES\n")
         context_sections.append("Previous stages that have been implemented:\n\n")
         for completed in completed_stages:
             if isinstance(completed, dict):
@@ -162,7 +141,7 @@ def get_claude_context(
 
     # 3. FULL ANALYSIS PLAN SECTION
     if all_stages:
-        context_sections.append("## FULL ANALYSIS PLAN\n")
+        context_sections.append("## FULL EXPERIMENTAL PLAN\n")
         context_sections.append("Here's the complete stage sequence (for context and continuity):\n\n")
         for stage in all_stages:
             if isinstance(stage, dict):
@@ -214,31 +193,22 @@ def get_claude_context(
 
 Execute the following stage implementation COMPLETELY and THOROUGHLY.
 
-IMPORTANT: You have scientific Skills available in .claude/skills/. 
-Start by asking "What Skills are available?" to discover specialized tools for your task.
-
-Parse this stage into discrete steps and execute EVERY step. Work through multiple related subtasks in this session. Do not exit until this stage is fully implemented.
-
 Working directory: {working_dir}
 
 CURRENT STAGE TO IMPLEMENT:
 {truncated_plan}
 
-CRITICAL REQUIREMENTS:
-1. Discover and use available Skills for specialized tasks
-2. Complete ALL aspects of this stage - no partial execution
-3. Work through multiple related subtasks in this session (don't exit after one tiny task)
-4. Consider how this stage fits into the overall analysis plan above
-5. Build upon any completed stages mentioned above
-6. Save all outputs with descriptive filenames using {working_dir}/ prefix
-7. Print progress updates after each step
-8. Update README.md incrementally - DO NOT create separate summary files
-9. Document which Skills were used in README
+CRITICAL ML RESEARCH REQUIREMENTS:
+1. READ THE BLUEPRINT: You MUST read `knowledge_base/02_methodology_specs.md` before writing any code.
+2. Complete ALL aspects of this stage - no partial execution.
+3. Save all neural network weights, plots, and metrics with descriptive filenames using {working_dir}/results/ prefix.
+4. Ensure your Deep Learning code is device-agnostic (CPU/CUDA/MPS) and sets random seeds for reproducibility.
+5. Print training progress updates (e.g., loss every N epochs) so the orchestrator knows you haven't hung.
+6. Update README.md incrementally - DO NOT create separate summary files.
 
 FILE HANDLING CONSTRAINTS (CRITICAL):
 - DO NOT read files >1MB directly - use head/tail or pandas with nrows parameter
 - Check file sizes first: ls -lh filename.csv
-- For large datasets, load in chunks: pd.read_csv(file, nrows=1000)
 - Violating this causes "JSON buffer exceeded" errors
 
 You MUST implement the entire stage. Parse it into concrete steps, execute them thoroughly, and verify all aspects are complete."""
@@ -260,8 +230,16 @@ name = "ai-research-engineer-session"
 version = "0.1.0"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    # Core Deep Learning & ML
+    "torch>=2.2.0",
+    "torchvision>=0.17.0",
+    "transformers>=4.38.0",
+    "datasets>=2.18.0",
+    "accelerate>=0.27.0",
+    "einops>=0.7.0",
+    
     # Core scientific computing
-    "numpy>=2.0.0",
+    "numpy>=1.26.0",
     "pandas>=2.0.0",
     "matplotlib>=3.8.0",
     "scipy>=1.11.0",
@@ -273,13 +251,10 @@ dependencies = [
     "pillow>=10.0.0",
     "requests>=2.31.0",
     
-    # Notebooks support
-    "jupyter>=1.0.0",
-    "ipykernel>=6.25.0",
-    
     # Additional utilities
     "tqdm>=4.66.0",
     "plotly>=5.17.0",
+    "wandb>=0.16.0",
     
     # Environment management
     "python-dotenv>=1.0.0",

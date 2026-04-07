@@ -2,6 +2,11 @@
 
 **An Autonomous Multi-Agent Framework for Rigorous Machine Learning Research**
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/ris3abh/ai-research-engineer/pulls)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![PyPI version](https://badge.fury.io/py/ai-research-engineer.svg?icon=si%3Apython)](https://badge.fury.io/py/ai-research-engineer)
+
 AI Research Engineer is an open-source framework designed to automate the entire lifecycle of AI research—from novel hypothesis generation to high-quality code implementation and final academic manuscript drafting. Built on Google's Agent Development Kit (ADK) and the Claude Agent SDK, the system leverages structural code intelligence and deep literature integration to ensure scientific rigor and novelty.
 
 ## 🚀 Features
