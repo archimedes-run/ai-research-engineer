@@ -1,7 +1,6 @@
 """
-Tools for Agentic Data Scientist agents.
-
-This module provides file system and web fetch tools for ADK agents.
+Tools for AI Research Engineer agents.
+Provides file system, web fetch, arXiv, and Semantic Scholar tools.
 All file operations are read-only and enforce working_dir sandboxing.
 """
 
@@ -15,8 +14,30 @@ from ai_research_engineer.tools.file_ops import (
 )
 from ai_research_engineer.tools.web_ops import fetch_url
 
+# Import Semantic Scholar tools
+from ai_research_engineer.tools.semantic_scholar_ops import (
+    search_papers as semantic_search_papers,
+    get_paper_details,
+    get_paper_citations,
+    get_paper_references,
+    search_authors,
+    get_author_details,
+    get_recommendations,
+    list_tracked_papers,
+    export_bibtex
+)
+
+# Import ArXiv tools
+from ai_research_engineer.tools.research_ops import (
+    discover_high_impact_papers,
+    search_papers as arxiv_search_papers,
+    download_paper,
+    list_papers as list_arxiv_papers,
+    read_paper
+)
 
 __all__ = [
+    # Base tools
     "read_file",
     "read_media_file",
     "list_directory",
@@ -24,4 +45,22 @@ __all__ = [
     "search_files",
     "get_file_info",
     "fetch_url",
+    
+    # Semantic Scholar tools
+    "semantic_search_papers",
+    "get_paper_details",
+    "get_paper_citations",
+    "get_paper_references",
+    "search_authors",
+    "get_author_details",
+    "get_recommendations",
+    "list_tracked_papers",
+    "export_bibtex",
+    
+    # ArXiv tools
+    "discover_high_impact_papers",
+    "arxiv_search_papers",
+    "download_paper",
+    "list_arxiv_papers",
+    "read_paper"
 ]

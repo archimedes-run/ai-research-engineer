@@ -99,7 +99,6 @@ def setup_skills_directory(working_dir: str) -> None:
 def setup_working_directory(working_dir: str) -> None:
     """
     Set up the working directory with required files and structure.
-
     Parameters
     ----------
     working_dir : str
@@ -108,8 +107,8 @@ def setup_working_directory(working_dir: str) -> None:
     working_path = Path(working_dir)
     working_path.mkdir(parents=True, exist_ok=True)
 
-    # Create standard subdirectories
-    subdirs = ["user_data", "workflow", "results"]
+    # We added 'knowledge_base' and 'literature' to the standard subdirectories
+    subdirs = ["user_data", "workflow", "results", "literature", "knowledge_base"]
 
     for subdir in subdirs:
         (working_path / subdir).mkdir(exist_ok=True)
@@ -123,25 +122,40 @@ def setup_working_directory(working_dir: str) -> None:
         pyproject_path.write_text(get_minimal_pyproject())
         logger.info(f"[Claude Code] Created pyproject.toml in {working_dir}")
 
-    # Create initial README.md
+    # Initialize the Knowledge Base Vault
+    kb_path = working_path / "knowledge_base"
+    
+    # 1. Literature Review Synthesis
+    lit_review = kb_path / "01_literature_review.md"
+    if not lit_review.exists():
+        lit_review.write_text("# Literature Review & Context\n\n*Agents: Document summaries of read papers, gaps in the current research, and why our approach is novel here.*")
+        
+    # 2. Methodology & Equations
+    methodology = kb_path / "02_methodology_specs.md"
+    if not methodology.exists():
+        methodology.write_text("# Methodology & Architecture Specs\n\n*Agents: Document exact mathematical formulations, network architectures, hyperparameters, and dataset requirements here so the Coding Agent can implement them precisely.*")
+
+    # Create initial Workspace README.md
     readme_path = working_path / "README.md"
     if not readme_path.exists():
-        readme_content = f"""# Agentic Data Scientist Session
+        readme_content = f"""# AI Research Engineer Session
 
-Working Directory: `{working_dir}`
+            Working Directory: `{working_dir}`
 
-## Directory Structure
+            ## Directory Structure
 
-- `user_data/` - Input files from user
-- `workflow/` - Implementation scripts and notebooks
-- `results/` - Final analysis outputs
+            - `literature/` - Raw downloaded PDFs from arXiv
+            - `knowledge_base/` - Synthesized research notes, equations, and methodology specs (The "Brain")
+            - `user_data/` - Input datasets or user files
+            - `workflow/` - Implementation scripts, neural networks, and notebooks
+            - `results/` - Final analysis outputs, model weights, and plots
 
-## Implementation Progress
+            ## Implementation Progress
 
-_This file will be updated as the implementation progresses._
-"""
+            _This file will be updated as the implementation progresses._
+            """
         readme_path.write_text(readme_content)
-        logger.info(f"[Claude Code] Created README.md in {working_dir}")
+        logger.info(f"[Claude Code] Created README.md and Knowledge Base in {working_dir}")
 
 
 class ClaudeCodeAgent(Agent):

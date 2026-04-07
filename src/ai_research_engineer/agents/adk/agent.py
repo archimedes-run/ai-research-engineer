@@ -1,7 +1,7 @@
 """
-Main ADK agent factory for Agentic Data Scientist.
+Main ADK agent factory for AI Research Engineer.
 
-This module creates the multi-agent system with planning, orchestration,
+This module creates the multi-agent system with ideation, planning, orchestration,
 implementation, and verification agents.
 """
 
@@ -405,7 +405,7 @@ def create_agent(
     mcp_servers: Optional[List[str]] = None,
 ) -> LoopDetectionAgent:
     """
-    Factory function to create an Agentic Data Scientist ADK agent.
+    Factory function to create an AI Research Engineer ADK agent.
 
     Parameters
     ----------
@@ -423,12 +423,12 @@ def create_agent(
     if working_dir is None:
         import tempfile
 
-        working_dir = tempfile.mkdtemp(prefix="agentic_ds_")
+        working_dir = tempfile.mkdtemp(prefix="ai_research_")
 
     working_dir = Path(working_dir)
     working_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"[AgenticDS] Creating ADK agent with working_dir={working_dir}")
+    logger.info(f"[AIResearcher] Creating ADK agent with working_dir={working_dir}")
 
     # Create local tools with working_dir bound via wrapper functions
     from ai_research_engineer.tools import (
@@ -439,6 +439,28 @@ def create_agent(
         read_file,
         read_media_file,
         search_files,
+        # Semantic Scholar Tools
+        semantic_search_papers,
+        get_paper_details,
+        get_paper_citations,
+        get_paper_references,
+        search_authors,
+        get_author_details,
+        get_recommendations,
+        list_tracked_papers,
+        export_bibtex,
+        # ArXiv Tools
+        discover_high_impact_papers,
+        arxiv_search_papers,
+        download_paper,
+        list_arxiv_papers,
+        read_paper,
+        # Code Graph Tools
+        build_knowledge_graph,
+        get_code_context,
+        get_code_blast_radius,
+        query_code_structure,
+        search_code_semantically
     )
 
     # Bind working_dir using wrapper functions that completely hide the parameter
@@ -469,20 +491,84 @@ def create_agent(
         """Get detailed metadata about a file."""
         return get_file_info(path, working_dir_str)
 
+    # --- Academic Research Tool Bindings ---
+    def semantic_search_papers_bound(query: str, year: Optional[str] = None, min_citations: int = 0, limit: int = 10) -> str:
+        return semantic_search_papers(query, year, min_citations, limit, working_dir_str)
+
+    def get_paper_details_bound(paper_id: str) -> str:
+        return get_paper_details(paper_id, working_dir_str)
+        
+    def list_tracked_papers_bound(source_tool: Optional[str] = None) -> str:
+        return list_tracked_papers(working_dir_str, source_tool)
+        
+    def export_bibtex_bound(file_name: str = "references.bib") -> str:
+        return export_bibtex(working_dir_str, file_name)
+        
+    def download_paper_bound(paper_id: str) -> str:
+        return download_paper(paper_id, working_dir_str)
+        
+    def list_arxiv_papers_bound() -> str:
+        return list_arxiv_papers(working_dir_str)
+        
+    def read_paper_bound(paper_id: str) -> str:
+        return read_paper(paper_id, working_dir_str)
+
+    # --- Code Graph Tool Bindings ---
+    def build_knowledge_graph_bound() -> str:
+        return build_knowledge_graph(working_dir_str)
+        
+    def get_code_context_bound(task: str) -> str:
+        return get_code_context(task, working_dir_str)
+        
+    def get_code_blast_radius_bound(changed_files: list[str]) -> str:
+        return get_code_blast_radius(changed_files, working_dir_str)
+        
+    def query_code_structure_bound(pattern: str, target: str) -> str:
+        return query_code_structure(pattern, target, working_dir_str)
+        
+    def search_code_semantically_bound(query: str) -> str:
+        return search_code_semantically(query, working_dir_str)
+
     tools = [
+        # Base File Tools
         read_file_bound,
         read_media_file_bound,
         list_directory_bound,
         directory_tree_bound,
         search_files_bound,
         get_file_info_bound,
+        
+        # Semantic Scholar Tools
+        semantic_search_papers_bound,
+        get_paper_details_bound,
+        get_paper_citations,      # No workspace needed
+        get_paper_references,     # No workspace needed
+        search_authors,           # No workspace needed
+        get_author_details,       # No workspace needed
+        get_recommendations,      # No workspace needed
+        list_tracked_papers_bound,
+        export_bibtex_bound,
+        
+        # ArXiv Tools
+        discover_high_impact_papers, # No workspace needed
+        arxiv_search_papers,         # No workspace needed
+        download_paper_bound,
+        list_arxiv_papers_bound,
+        read_paper_bound,
+        
+        # Code Graph Tools
+        build_knowledge_graph_bound,
+        get_code_context_bound,
+        get_code_blast_radius_bound,
+        query_code_structure_bound,
+        search_code_semantically_bound
     ]
 
     # Only add fetch_url if network access is not disabled
     if not is_network_disabled():
         tools.append(fetch_url)
 
-    logger.info(f"[AgenticDS] Configured {len(tools)} local tools")
+    logger.info(f"[AIResearcher] Configured {len(tools)} tools (including Academic Literature tools)")
 
     # ------------------------- Implementation Loop -------------------------
 
@@ -498,10 +584,10 @@ def create_agent(
 
     # ------------------------- Summary Agent -------------------------
 
-    logger.info("[AgenticDS] Loading summary_agent prompt")
+    logger.info("[AIResearcher] Loading summary_agent prompt")
     summary_agent_instructions = load_prompt("summary")
 
-    logger.info(f"[AgenticDS] Creating summary_agent with model={DEFAULT_MODEL}")
+    logger.info(f"[AIResearcher] Creating summary_agent with model={DEFAULT_MODEL}")
 
     summary_agent = LoopDetectionAgent(
         name="summary_agent",
@@ -518,12 +604,66 @@ def create_agent(
         generate_content_config=get_generate_content_config(temperature=0.3),
     )
 
+    # ------------------------- Ideation Loop (NEW) -------------------------
+    
+    logger.info("[AIResearcher] Loading idea generator prompt")
+    idea_generator_instructions = load_prompt("idea_generator")
+
+    logger.info(f"[AIResearcher] Creating idea generator agent with model={DEFAULT_MODEL}")
+    idea_generator_compression = create_compression_callback(event_threshold=40, overlap_size=20)
+
+    idea_generator_agent = LoopDetectionAgent(
+        name="idea_generator_agent",
+        model=DEFAULT_MODEL,
+        description="Generates novel ML architectures and hypotheses.",
+        instruction=idea_generator_instructions,
+        tools=tools,
+        output_key="generated_ideas",
+        planner=BuiltInPlanner(
+            thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=-1),
+        ),
+        # Slightly higher temperature for creative brainstorming
+        generate_content_config=get_generate_content_config(temperature=0.6), 
+        after_agent_callback=idea_generator_compression,
+    )
+
+    logger.info("[AIResearcher] Loading novelty scorer prompt")
+    novelty_scorer_instructions = load_prompt("novelty_scorer")
+
+    logger.info(f"[AIResearcher] Creating novelty scorer agent with model={REVIEW_MODEL}")
+    novelty_scorer_compression = create_compression_callback(event_threshold=40, overlap_size=20)
+
+    novelty_scorer_agent = LoopDetectionAgent(
+        name="novelty_scorer_agent",
+        model=REVIEW_MODEL,
+        description="Evaluates ideas for novelty, feasibility, and impact using literature tools.",
+        instruction=novelty_scorer_instructions,
+        tools=tools,
+        output_key="novelty_scorer_feedback",
+        planner=BuiltInPlanner(
+            thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=-1),
+        ),
+        generate_content_config=get_generate_content_config(temperature=0.2),
+        after_agent_callback=novelty_scorer_compression,
+    )
+
+    ideation_loop = NonEscalatingLoopAgent(
+        name="ideation_loop",
+        description="Iteratively brainstorms and validates novel research ideas.",
+        sub_agents=[
+            idea_generator_agent,
+            novelty_scorer_agent,
+            create_review_confirmation_agent(auto_exit_on_completion=True, prompt_name="ideation_review_confirmation"),
+        ],
+        max_iterations=5,
+    )
+
     # ------------------------- High Level Planning Agents -------------------------
 
-    logger.info("[AgenticDS] Loading plan maker agent prompt")
+    logger.info("[AIResearcher] Loading plan maker agent prompt")
     plan_maker_instructions = load_prompt("plan_maker")
 
-    logger.info(f"[AgenticDS] Creating plan maker agent with model={DEFAULT_MODEL}")
+    logger.info(f"[AIResearcher] Creating plan maker agent with model={DEFAULT_MODEL}")
 
     plan_maker_compression = create_compression_callback(event_threshold=40, overlap_size=20)
 
@@ -540,14 +680,14 @@ def create_agent(
                 thinking_budget=-1,
             ),
         ),
-        generate_content_config=get_generate_content_config(temperature=0.6),
+        generate_content_config=get_generate_content_config(temperature=0.4),
         after_agent_callback=plan_maker_compression,
     )
 
-    logger.info("[AgenticDS] Loading plan reviewer agent prompt")
+    logger.info("[AIResearcher] Loading plan reviewer agent prompt")
     plan_reviewer_instructions = load_prompt("plan_reviewer")
 
-    logger.info(f"[AgenticDS] Creating plan reviewer agent with model={REVIEW_MODEL}")
+    logger.info(f"[AIResearcher] Creating plan reviewer agent with model={REVIEW_MODEL}")
 
     plan_reviewer_compression = create_compression_callback(event_threshold=40, overlap_size=20)
 
@@ -581,10 +721,10 @@ def create_agent(
 
     # ------------------------- High Level Plan Parser -------------------------
 
-    logger.info("[AgenticDS] Loading plan parser prompt")
+    logger.info("[AIResearcher] Loading plan parser prompt")
     plan_parser_instructions = load_prompt("plan_parser")
 
-    logger.info(f"[AgenticDS] Creating plan parser agent with model={DEFAULT_MODEL}")
+    logger.info(f"[AIResearcher] Creating plan parser agent with model={DEFAULT_MODEL}")
 
     high_level_plan_parser = LoopDetectionAgent(
         name="high_level_plan_parser",
@@ -600,10 +740,10 @@ def create_agent(
 
     # ------------------------- Success Criteria Checker -------------------------
 
-    logger.info("[AgenticDS] Loading criteria checker prompt")
+    logger.info("[AIResearcher] Loading criteria checker prompt")
     criteria_checker_instructions = load_prompt("criteria_checker")
 
-    logger.info(f"[AgenticDS] Creating criteria checker agent with model={REVIEW_MODEL}")
+    logger.info(f"[AIResearcher] Creating criteria checker agent with model={REVIEW_MODEL}")
 
     criteria_checker_compression = create_compression_callback(event_threshold=40, overlap_size=20)
 
@@ -628,10 +768,10 @@ def create_agent(
 
     # ------------------------- Stage Reflector -------------------------
 
-    logger.info("[AgenticDS] Loading stage reflector prompt")
+    logger.info("[AIResearcher] Loading stage reflector prompt")
     stage_reflector_instructions = load_prompt("stage_reflector")
 
-    logger.info(f"[AgenticDS] Creating stage reflector agent with model={DEFAULT_MODEL}")
+    logger.info(f"[AIResearcher] Creating stage reflector agent with model={DEFAULT_MODEL}")
 
     stage_reflector_compression = create_compression_callback(event_threshold=40, overlap_size=20)
 
@@ -656,7 +796,7 @@ def create_agent(
 
     # ------------------------- Stage Orchestrator -------------------------
 
-    logger.info("[AgenticDS] Creating stage orchestrator")
+    logger.info("[AIResearcher] Creating stage orchestrator")
 
     from ai_research_engineer.agents.adk.stage_orchestrator import StageOrchestratorAgent
 
@@ -670,20 +810,21 @@ def create_agent(
 
     # ------------------------- Root Workflow -------------------------
 
-    logger.info("[AgenticDS] Creating root workflow")
+    logger.info("[AIResearcher] Creating root workflow")
 
     workflow = SequentialAgent(
         name="ai_research_engineer_workflow",
-        description="Complete Agentic Data Scientist workflow with adaptive stage-wise implementation.",
+        description="Complete AI Research Engineer workflow with adaptive stage-wise implementation.",
         sub_agents=[
-            high_level_planning_loop,
+            ideation_loop,              # NEW: Brainstorms and validates ideas first!
+            high_level_planning_loop,   # THEN plans out the execution
             high_level_plan_parser,
             stage_orchestrator,
             summary_agent,
         ],
     )
 
-    logger.info("[AgenticDS] Agent creation complete")
+    logger.info("[AIResearcher] Agent creation complete")
 
     return workflow
 
@@ -721,7 +862,7 @@ def create_app(
         context_cache_config=cache_config,
     )
 
-    logger.info("[AgenticDS] Created App with context caching enabled")
-    logger.info("[AgenticDS] Event compression will be handled via custom callbacks")
+    logger.info("[AIResearcher] Created App with context caching enabled")
+    logger.info("[AIResearcher] Event compression will be handled via custom callbacks")
 
     return app
