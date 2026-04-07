@@ -81,3 +81,8 @@ dev = [
     "pytest-asyncio>=1.2.0",
 ]
 
+[tool.uv]
+override-dependencies = [
+    "watchdog>=6.0.0",
+]
+

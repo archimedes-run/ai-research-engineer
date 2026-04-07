@@ -1,6 +1,6 @@
 """
 Tools for AI Research Engineer agents.
-Provides file system, web fetch, arXiv, and Semantic Scholar tools.
+Provides file system, web fetch, arXiv, Semantic Scholar, and Code Graph tools.
 All file operations are read-only and enforce working_dir sandboxing.
 """
 
@@ -36,6 +36,15 @@ from ai_research_engineer.tools.research_ops import (
     read_paper
 )
 
+# Import Code Graph tools
+from ai_research_engineer.tools.code_graph_ops import (
+    build_knowledge_graph,
+    get_code_context,
+    get_code_blast_radius,
+    query_code_structure,
+    search_code_semantically
+)
+
 __all__ = [
     # Base tools
     "read_file",
@@ -62,5 +71,12 @@ __all__ = [
     "arxiv_search_papers",
     "download_paper",
     "list_arxiv_papers",
-    "read_paper"
+    "read_paper",
+    
+    # Code Graph tools
+    "build_knowledge_graph",
+    "get_code_context",
+    "get_code_blast_radius",
+    "query_code_structure",
+    "search_code_semantically"
 ]
