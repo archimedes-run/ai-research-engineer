@@ -30,6 +30,9 @@ dependencies = [
     "arxiv>=2.4.1",
     "code-review-graph[all]>=2.2.1",
     "PyPDF2>=3.0.1",
+    "pykan>=0.2.8",
+    "pandas>=3.0.2",
+    "scikit-learn>=1.8.0",
 ]
 
 [project.urls]

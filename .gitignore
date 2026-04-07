@@ -42,6 +42,8 @@ htmlcov/
 sessions/
 sandbox/
 tmp/
+model/
+
 
 # Data files
 data/
