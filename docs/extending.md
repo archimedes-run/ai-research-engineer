@@ -1,762 +1,573 @@
-# Extending Agentic Data Scientist
+# Extending the AI Research Engineer
 
-This guide explains how to customize and extend the Agentic Data Scientist multi-agent workflow.
-
-## Table of Contents
-
-- [Understanding the Agent Hierarchy](#understanding-the-agent-hierarchy)
-- [Custom Prompts](#custom-prompts)
-- [Custom Agents](#custom-agents)
-- [Custom MCP Toolsets](#custom-mcp-toolsets)
-- [Custom Event Handlers](#custom-event-handlers)
-- [Integration Examples](#integration-examples)
+This guide explains how to customize and extend the AI Research Engineer framework to fit your specific research needs, domain requirements, and infrastructure constraints.
 
 ## Understanding the Agent Hierarchy
 
-The ADK workflow consists of multiple specialized agents organized into phases:
+The system is organized into specific research phases, allowing targeted customization at each stage:
 
 ```
 Workflow Root (SequentialAgent)
-├── Planning Loop (NonEscalatingLoopAgent)
-│   ├── Plan Maker (LoopDetectionAgent)
-│   ├── Plan Reviewer (LoopDetectionAgent)
-│   └── Review Confirmation (LoopDetectionAgent)
-├── Plan Parser (LoopDetectionAgent)
-├── Stage Orchestrator (Custom Agent)
+├── Ideation Loop (Idea Generator, Novelty Scorer)
+├── Planning Loop (Plan Maker, Plan Reviewer)
+├── Plan Parser
+├── Stage Orchestrator
 │   └── For each stage:
-│       ├── Implementation Loop (NonEscalatingLoopAgent)
-│       │   ├── Coding Agent (ClaudeCodeAgent)
-│       │   ├── Review Agent (LoopDetectionAgent)
-│       │   └── Review Confirmation (LoopDetectionAgent)
-│       ├── Criteria Checker (LoopDetectionAgent)
-│       └── Stage Reflector (LoopDetectionAgent)
-└── Summary Agent (LoopDetectionAgent)
+│       ├── Implementation Loop (Coding Agent, Review Agent)
+│       ├── Criteria Checker
+│       └── Stage Reflector
+└── Summary Agent (Academic Manuscript Writer)
 ```
 
-### Key Agent Types
-
-**LoopDetectionAgent**: Extends ADK's LlmAgent with loop detection to prevent infinite generation
-**ClaudeCodeAgent**: Wraps Claude Code SDK for implementation with tool access
-**NonEscalatingLoopAgent**: Manages iteration without propagating escalation flags upward
-**StageOrchestratorAgent**: Custom orchestrator managing stage-by-stage execution
+Each agent is independently configurable, allowing you to specialize the system for your domain while maintaining the overall research pipeline integrity.
 
 ## Custom Prompts
 
-Each agent in the workflow is driven by a prompt template. You can customize these to change agent behavior.
+Prompts are stored in `src/ai_research_engineer/prompts/`. To change the flavor of research, modify these files.
 
-### Prompt Structure
+### Available Prompt Files
 
-Prompts are stored in `src/ai_research_engineer/prompts/`:
+- **`idea_generator.md`**: Dictates how the agent brainstorms and explores research directions
+- **`plan_maker.md`**: Dictates the strictness of the mathematical blueprints and planning rigor
+- **`coding_base.md`**: Houses the core rules for the Coding Agent (e.g., forcing PyTorch, requiring deterministic seeds)
+- **`summary.md`**: Instructs the agent on how to format the final LaTeX/Markdown paper
 
-```
-prompts/
-├── base/
-│   ├── plan_maker.md               # Creates analysis plans
-│   ├── plan_reviewer.md            # Reviews plans for completeness
-│   ├── plan_review_confirmation.md # Decides if plan is approved
-│   ├── plan_parser.md              # Structures plan into stages
-│   ├── coding_review.md            # Reviews implementations
-│   ├── implementation_review_confirmation.md  # Decides if implementation is approved
-│   ├── criteria_checker.md         # Checks success criteria
-│   ├── stage_reflector.md          # Adapts remaining stages
-│   ├── summary.md                  # Generates final report
-│   └── global_preamble.md          # Shared context for all agents
-└── domain/
-    └── bioinformatics/             # Domain-specific customizations
-        ├── science_methodology.md
-        └── interactive_base.md
-```
+### Understanding Prompt Structure
 
-### Loading Custom Prompts
+Each prompt file contains:
 
-```python
-from ai_research_engineer.prompts import load_prompt
+```markdown
+# [Agent Role Title]
 
-# Load a base prompt
-plan_maker_prompt = load_prompt("plan_maker")
+## Core Responsibilities
+[What this agent does in the workflow]
 
-# Load a domain-specific prompt
-bio_prompt = load_prompt("science_methodology", domain="bioinformatics")
+## Style Guidelines
+[Tone and approach]
+
+## Technical Constraints
+[Hard rules and requirements]
+
+## Output Format
+[Expected structure of outputs]
+
+## Examples
+[Sample inputs/outputs]
 ```
 
-### Creating Custom Prompts
+### Modifying Prompts Safely
 
-1. **Create a new prompt file** in `prompts/base/` or `prompts/domain/your_domain/`
+1. **Always preserve the workflow hooks**: Each prompt contains markers like `{{previous_stage_output}}` and `{{success_criteria}}`
+2. **Test incrementally**: Modify one section at a time and validate against a simple test query
+3. **Keep a backup**: Version your custom prompts in git
 
-Example: `prompts/base/custom_plan_maker.md`
+### Prompt Modification Best Practices
+
+```markdown
+# BAD: Removing critical constraints
+You are a code generator. Write PyTorch code.
+
+# GOOD: Adding domain-specific constraints while preserving structure
+You are a code generator specializing in medical AI. 
+Write PyTorch code with the following domain requirements:
+- All models must support mixed precision (fp16/fp32)
+- Include DICOM image preprocessing pipelines
+- Validate against FDA 21 CFR Part 11 compliance where applicable
+```
+
+## Customizing Specific Agent Prompts
+
+### Example 1: Customize for Quantum ML
+
+Modify `coding_base.md` to ensure the agent uses Pennylane instead of standard PyTorch:
 
 ```markdown
 $global_preamble
 
-You are a specialized planning agent for [your domain].
+You are a Quantum Machine Learning Engineer. 
 
-# Your Role
+## Framework Requirements
+- Always use `pennylane` and `qiskit` for your implementations
+- Ensure all quantum circuits are tracked for gate depth and execution time
+- Implement classical-quantum hybrid architectures using `pytorch` + `pennylane`
 
-Create detailed analysis plans for [specific task type].
-
-# Output Format
-
-Provide structured plans containing:
-1. **Analysis Stages** - Step-by-step breakdown
-2. **Success Criteria** - How to verify completion
-3. **Recommended Approaches** - Domain-specific methods
-
-# Domain Knowledge
-
-[Include specific expertise, methodologies, or considerations]
-
-# Context
-
-**User Request:**
-{original_user_input?}
-```
-
-2. **Use the custom prompt** by loading it:
-
-```python
-from ai_research_engineer.prompts import load_prompt
-
-custom_prompt = load_prompt("custom_plan_maker")
-```
-
-### Customizing Specific Agent Prompts
-
-To customize a specific agent's behavior, modify its prompt:
-
-**Example: Customize Plan Maker for Financial Analysis**
-
-Create `prompts/domain/finance/plan_maker.md`:
-
-```markdown
-$global_preamble
-
-You are a financial data science strategist specializing in quantitative analysis.
-
-# Your Role
-
-Transform financial analysis requests into comprehensive, risk-aware plans.
-
-# Financial Analysis Stages
-
-Focus on:
-1. Data quality and compliance verification
-2. Risk assessment and statistical validation  
-3. Regulatory compliance checks
-4. Backtesting and validation strategies
-
-# Success Criteria Requirements
-
-Every plan must include:
-- Data quality thresholds
-- Statistical significance requirements
-- Risk metrics and controls
-- Audit trail requirements
+## Validation Rules
+- Verify quantum circuit depth does not exceed target hardware limits
+- Include noise simulation for realistic gate fidelity
+- Profile shot count requirements for statistical significance
 
 [... rest of customized prompt ...]
 ```
 
-Then load it:
+### Example 2: Customize for Reinforcement Learning
 
-```python
-financial_prompt = load_prompt("plan_maker", domain="finance")
+Modify `plan_maker.md` to enforce RL-specific methodology:
+
+```markdown
+$global_preamble
+
+You are an RL Research Methodologist specializing in policy gradient methods.
+
+## Planning Requirements
+- Define state/action/reward spaces formally
+- Specify exploration-exploitation trade-offs
+- Include curriculum learning stages if appropriate
+- Plan for off-policy vs on-policy comparisons
+- Define sample efficiency metrics alongside reward curves
+
+## Success Criteria Template
+For RL experiments, success criteria MUST include:
+- Final average reward (with confidence intervals)
+- Sample efficiency (samples to convergence)
+- Generalization across 5+ random seeds
+- Wall-clock training time on reference hardware
+
+[... rest of customized prompt ...]
 ```
 
-**Note**: Models are configured via environment variables (`OPENROUTER_API_KEY`, `DEFAULT_MODEL`) and routed through OpenRouter.
+### Example 3: Customize for Biomedical Research
 
-### Prompt Variables
+Modify `idea_generator.md` to ensure ethical and practical considerations:
 
-Prompts can include dynamic variables that are interpolated at runtime:
+```markdown
+$global_preamble
 
-- `{original_user_input?}`: The user's query
-- `{high_level_plan?}`: The current plan
-- `{high_level_stages?}`: List of stages
-- `{high_level_success_criteria?}`: Success criteria
-- `{stage_implementations?}`: Completed stage summaries
-- `{current_stage?}`: Current stage being implemented
-- `{implementation_summary?}`: Implementation output
-- `{review_feedback?}`: Review agent feedback
+You are a Biomedical AI Research Specialist.
 
-## Custom Agents
+## Novelty Assessment
+- Query PubMed and bioRxiv in addition to general ML venues
+- Cross-validate against clinical trial registries (clinicaltrials.gov)
+- Assess reproducibility and data availability of cited works
 
-### Extending Existing Agents
+## Ethical Constraints
+- Flag ideas requiring IRB approval
+- Identify data privacy and HIPAA implications
+- Document informed consent requirements
+- Consider fairness across demographic groups
 
-You can customize existing agent roles by creating modified versions:
+## Biological Validity
+- Ensure proposed mechanisms align with known biology
+- Validate against established medical knowledge
+- Plan for clinical validation stages
 
-```python
-from google.adk.agents import LlmAgent
-from google.genai import types
-from ai_research_engineer.agents.adk.loop_detection import LoopDetectionAgent
-from ai_research_engineer.agents.adk.utils import DEFAULT_MODEL, get_generate_content_config
-from ai_research_engineer.prompts import load_prompt
-
-def create_custom_plan_maker(tools):
-    """Create a custom plan maker with specialized behavior."""
-    
-    # Load custom prompt
-    custom_instructions = load_prompt("custom_plan_maker", domain="finance")
-    
-    # DEFAULT_MODEL is a LiteLLM model instance configured to use OpenRouter
-    return LoopDetectionAgent(
-        name="custom_plan_maker",
-        model=DEFAULT_MODEL,  # Automatically routed through OpenRouter
-        description="Custom financial planning agent",
-        instruction=custom_instructions,
-        tools=tools,
-        output_key="high_level_plan",
-        generate_content_config=get_generate_content_config(temperature=0.4),
-        # Custom loop detection thresholds
-        min_pattern_length=300,
-        repetition_threshold=4,
-    )
-```
-
-### Creating New Agent Roles
-
-You can add entirely new agents to the workflow:
-
-```python
-from google.adk.agents import InvocationContext
-from google.adk.events import Event
-from google.genai import types
-from typing import AsyncGenerator
-
-class ValidationAgent(LoopDetectionAgent):
-    """Custom validation agent for specific checks."""
-    
-    def __init__(self, validation_rules, **kwargs):
-        super().__init__(**kwargs)
-        self.validation_rules = validation_rules
-    
-    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
-        """Custom validation logic."""
-        state = ctx.session.state
-        
-        # Get implementation results
-        implementation = state.get("implementation_summary", "")
-        
-        # Apply custom validation rules
-        validation_results = []
-        for rule_name, rule_fn in self.validation_rules.items():
-            passed = rule_fn(implementation)
-            validation_results.append({
-                'rule': rule_name,
-                'passed': passed
-            })
-        
-        # Store results
-        state["validation_results"] = validation_results
-        
-        # Yield results as event
-        summary = f"Validation: {sum(r['passed'] for r in validation_results)}/{len(validation_results)} checks passed"
-        yield Event(
-            author=self.name,
-            content=types.Content(
-                role="model",
-                parts=[types.Part(text=summary)]
-            ),
-        )
-```
-
-### Modifying the Workflow
-
-To integrate custom agents into the workflow, you'll need to modify the agent factory:
-
-```python
-from ai_research_engineer.agents.adk.agent import create_agent
-import logging
-
-logger = logging.getLogger(__name__)
-
-def create_custom_workflow(working_dir, mcp_servers=None):
-    """Create workflow with custom agents."""
-    
-    # Get standard agents
-    from ai_research_engineer.agents.adk.agent import (
-        create_agent as base_create_agent
-    )
-    
-    # Create base workflow
-    workflow = base_create_agent(working_dir, mcp_servers)
-    
-    # Or build custom workflow from scratch
-    from google.adk.agents import SequentialAgent
-    
-    custom_workflow = SequentialAgent(
-        name="custom_workflow",
-        description="Workflow with custom agents",
-        sub_agents=[
-            # Your custom agent composition
-        ]
-    )
-    
-    return custom_workflow
+[... rest of customized prompt ...]
 ```
 
 ## Custom Tools
 
-Tools provide functionality to agents. You can create custom tools by defining simple Python functions.
+Tools provide specialized functionality to agents. You can inject new scientific databases, internal compute clusters, domain-specific APIs, or proprietary datasets into the agents' toolbelts.
 
-### Creating Custom Tools
+### Understanding the Tool System
 
-Custom tools are regular Python functions that follow a simple signature pattern:
+Tools are Python functions that agents can call. Each tool:
+- Takes standardized input parameters
+- Returns results in a format agents understand
+- Includes error handling and rate limiting
+- Is decorated with `@tool` to register with the agent framework
+
+### Tool Signature Template
 
 ```python
 from functools import partial
-from pathlib import Path
+from typing import Optional, List, Dict, Any
 
-def custom_data_analysis(
+def my_custom_tool(
     query: str,
-    working_dir: str,
-) -> str:
+    filters: Optional[Dict[str, Any]] = None,
+    max_results: int = 10
+) -> Dict[str, Any]:
     """
-    Perform custom data analysis.
+    Tool description for the agent.
     
-    Parameters
-    ----------
-    query : str
-        Analysis query
-    working_dir : str
-        Working directory for security validation
-        
-    Returns
-    -------
-    str
-        Analysis results or error message
-    """
-    try:
-        # Your custom logic here
-        # Validate paths against working_dir for security
-        work_path = Path(working_dir).resolve()
-        
-        # Perform analysis
-        result = f"Analysis for: {query}"
-        return result
-    except Exception as e:
-        return f"Error: {e}"
-
-def fetch_custom_api(endpoint: str, timeout: int = 30) -> str:
-    """
-    Fetch data from a custom API.
+    Args:
+        query: The search or operation query
+        filters: Optional filtering parameters
+        max_results: Maximum number of results to return
     
-    Parameters
-    ----------
-    endpoint : str
-        API endpoint path
-    timeout : int, optional
-        Request timeout in seconds
-        
-    Returns
-    -------
-    str
-        API response or error message
+    Returns:
+        Dictionary with results and metadata
     """
-    import requests
-    
-    try:
-        base_url = "https://api.example.com"
-        response = requests.get(f"{base_url}/{endpoint}", timeout=timeout)
-        response.raise_for_status()
-        return response.text
-    except Exception as e:
-        return f"Error: {e}"
+    # Implementation here
+    return {
+        "results": [...],
+        "count": len(...),
+        "metadata": {...}
+    }
 ```
 
 ### Adding Custom Tools to Agents
 
-Modify the agent creation to include your custom tools:
+Custom tools are injected into the agent creation flow. Modify `src/ai_research_engineer/agents/adk/agent.py`:
 
 ```python
 from functools import partial
-from ai_research_engineer.agents.adk.agent import create_agent
-from ai_research_engineer.tools import (
-    read_file,
-    list_directory,
-    fetch_url,
-)
+from my_custom_cluster import trigger_slurm_job
+from my_lab_tools import query_internal_dataset
 
-def create_agent_with_custom_tools(working_dir: str):
-    """Create agent with custom tools."""
+def create_agent(working_dir: str):
+    """
+    Create ADK agent with custom tools injected.
+    """
     
-    # Import your custom tools
-    from my_tools import custom_data_analysis, fetch_custom_api
-    
-    # Create tools list with working_dir bound
     tools = [
-        # Standard file tools
-        partial(read_file, working_dir=working_dir),
-        partial(list_directory, working_dir=working_dir),
+        # Base File Tools
+        read_file_bound,
+        write_file_bound,
         
-        # Custom tools
-        partial(custom_data_analysis, working_dir=working_dir),
+        # Existing ArXiv & Academic Tools
+        search_papers_bound,
+        semantic_search_papers_bound,
         
-        # Web tools (no working_dir needed)
-        fetch_url,
-        fetch_custom_api,
+        # YOUR CUSTOM TOOLS
+        partial(trigger_slurm_job, cluster_name="gpu_cluster_1"),
+        partial(query_internal_dataset, api_key=os.getenv("INTERNAL_API_KEY")),
     ]
     
-    # Create agent with custom tools
-    # Note: You'll need to modify agent.py to accept tools parameter
-    # or directly instantiate agents with your tools list
-    return tools
+    # Create agent with tools
+    agent = SequentialAgent(
+        tools=tools,
+        working_dir=working_dir,
+        config=config
+    )
+    
+    return agent
 ```
 
-### Tool Design Best Practices
+### Example Custom Tools
 
-1. **Return String Results**: Tools should return string results or error messages for compatibility with ADK
-2. **Include Security Parameters**: File operation tools should include `working_dir` parameter
-3. **Handle Errors Gracefully**: Return error messages as strings instead of raising exceptions
-4. **Use Type Hints**: Include type hints for all parameters and return values
-5. **Write Docstrings**: Use NumPy-style docstrings for documentation
-6. **Keep It Simple**: Each tool should do one thing well
-
-### Example: Custom Database Tool
+#### Example 1: Internal Dataset Query Tool
 
 ```python
-from functools import partial
-import sqlite3
-from pathlib import Path
-
-def query_database(
+def query_internal_dataset(
+    dataset_name: str,
     query: str,
-    working_dir: str,
-    db_name: str = "data.db",
-) -> str:
+    api_key: str
+) -> Dict[str, Any]:
     """
-    Execute a read-only SQL query on a database.
+    Query internal proprietary datasets.
+    Available datasets: ["genomics_db", "clinical_records", "sensor_data"]
+    """
+    import requests
     
-    Parameters
-    ----------
-    query : str
-        SQL query (SELECT only)
-    working_dir : str
-        Working directory containing the database
-    db_name : str, optional
-        Database filename, default "data.db"
-        
-    Returns
-    -------
-    str
-        Query results as formatted string
-    """
-    try:
-        # Security: Validate database is in working_dir
-        work_path = Path(working_dir).resolve()
-        db_path = (work_path / db_name).resolve()
-        
-        if not db_path.is_relative_to(work_path):
-            return f"Error: Database must be in working directory"
-        
-        # Security: Only allow SELECT queries
-        if not query.strip().upper().startswith("SELECT"):
-            return "Error: Only SELECT queries allowed"
-        
-        # Execute query
-        conn = sqlite3.connect(db_path)
-        cursor = conn.execute(query)
-        results = cursor.fetchall()
-        conn.close()
-        
-        # Format results
-        if not results:
-            return "No results found"
-        
-        # Simple formatting
-        return "\n".join(str(row) for row in results)
-        
-    except Exception as e:
-        return f"Error executing query: {e}"
-
-# Usage in agent configuration
-tools = [
-    partial(query_database, working_dir="/path/to/session"),
-]
+    response = requests.post(
+        "https://internal-api.company.com/query",
+        json={"dataset": dataset_name, "query": query},
+        headers={"Authorization": f"Bearer {api_key}"}
+    )
+    
+    if response.status_code == 200:
+        return response.json()
+    else:
+        return {"error": response.text, "status": response.status_code}
 ```
 
-## Custom Event Handlers
-
-### Processing Streaming Events
-
-Create custom handlers to process workflow events:
+#### Example 2: GPU Cluster Submission Tool
 
 ```python
-async def custom_event_processor(ds, query):
-    """Custom event processing with metrics."""
+def trigger_slurm_job(
+    script_path: str,
+    cluster_name: str = "default",
+    job_name: str = None,
+    timeout_hours: int = 24
+) -> Dict[str, Any]:
+    """
+    Submit training jobs to SLURM cluster for large-scale experiments.
+    """
+    import subprocess
     
-    metrics = {
-        'plan_iterations': 0,
-        'implementation_iterations': 0,
-        'stages_completed': 0,
-        'tools_used': set(),
+    sbatch_cmd = f"""
+    sbatch --job-name={job_name or 'ai-research'} \
+           --time={timeout_hours}:00:00 \
+           --gpus-per-node=4 \
+           --mem=64G \
+           {script_path}
+    """
+    
+    result = subprocess.run(
+        sbatch_cmd,
+        shell=True,
+        capture_output=True,
+        text=True
+    )
+    
+    # Parse SLURM job ID from output
+    job_id = result.stdout.split()[-1] if result.returncode == 0 else None
+    
+    return {
+        "job_id": job_id,
+        "status": "submitted" if job_id else "failed",
+        "cluster": cluster_name,
+        "error": result.stderr if result.returncode != 0 else None
     }
-    
-    async for event in await ds.run_async(query, stream=True):
-        event_type = event.get('type')
-        author = event.get('author', '')
-        
-        # Track metrics
-        if 'plan_maker' in author:
-            metrics['plan_iterations'] += 1
-        elif 'coding_agent' in author:
-            metrics['implementation_iterations'] += 1
-        elif 'Stage' in event.get('content', ''):
-            metrics['stages_completed'] += 1
-        
-        if event_type == 'function_call':
-            metrics['tools_used'].add(event['name'])
-        
-        # Custom handling
-        if event_type == 'message':
-            # Filter or transform messages
-            content = event['content']
-            if 'ERROR' in content:
-                logger.error(f"Error in {author}: {content}")
-        
-        elif event_type == 'completed':
-            # Log metrics
-            logger.info(f"Workflow Metrics: {metrics}")
-            print(f"\n📊 Workflow completed with:")
-            print(f"  - {metrics['plan_iterations']} planning iterations")
-            print(f"  - {metrics['implementation_iterations']} implementation iterations")
-            print(f"  - {metrics['stages_completed']} stages completed")
-            print(f"  - {len(metrics['tools_used'])} unique tools used")
 ```
 
-### Custom Event Transformations
-
-Transform events before processing:
+#### Example 3: Custom Literature Database Tool
 
 ```python
-from ai_research_engineer.core.events import event_to_dict
-
-def transform_event(event):
-    """Add custom fields to events."""
-    event_dict = event_to_dict(event)
+def query_domain_bibliography(
+    query: str,
+    domain: str,
+    min_year: int = 2020
+) -> Dict[str, Any]:
+    """
+    Query domain-specific bibliographic database.
+    Domains: ["biology", "chemistry", "neuroscience", "materials_science"]
+    """
+    import requests
     
-    # Add custom metadata
-    event_dict['processed_at'] = time.time()
-    event_dict['workflow_phase'] = detect_phase(event_dict['author'])
-    
-    # Enhance with additional info
-    if event_dict['type'] == 'message':
-        event_dict['word_count'] = len(event_dict['content'].split())
-    
-    return event_dict
-
-def detect_phase(author):
-    """Detect which workflow phase an event belongs to."""
-    if 'plan_maker' in author or 'plan_reviewer' in author:
-        return 'planning'
-    elif 'stage_orchestrator' in author or 'coding_agent' in author:
-        return 'execution'
-    elif 'summary' in author:
-        return 'summary'
-    return 'unknown'
-```
-
-## Integration Examples
-
-### Integrating with FastAPI
-
-```python
-from fastapi import FastAPI, WebSocket, HTTPException
-from ai_research_engineer import DataScientist
-import asyncio
-import json
-
-app = FastAPI()
-
-@app.websocket("/ws/analyze")
-async def websocket_endpoint(websocket: WebSocket):
-    """WebSocket endpoint for real-time analysis."""
-    await websocket.accept()
-    
-    try:
-        # Receive request
-        data = await websocket.receive_json()
-        query = data.get('query')
-        files = data.get('files', [])
-        
-        # Run workflow with streaming
-        async with DataScientist() as ds:
-            async for event in await ds.run_async(
-                query,
-                files=[(f['name'], f['content']) for f in files],
-                stream=True
-            ):
-                # Send events to client
-                await websocket.send_json(event)
-                
-    except Exception as e:
-        await websocket.send_json({
-            'type': 'error',
-            'content': str(e)
-        })
-    finally:
-        await websocket.close()
-
-@app.post("/api/analyze")
-async def analyze_endpoint(query: str, files: list = None):
-    """REST endpoint for analysis."""
-    async with DataScientist() as ds:
-        result = await ds.run_async(query, files=files)
-        
-        if result.status == "error":
-            raise HTTPException(status_code=500, detail=result.error)
-        
-        return {
-            'response': result.response,
-            'files_created': result.files_created,
-            'duration': result.duration
+    # Connect to internal literature database
+    response = requests.get(
+        "https://literature.company.com/search",
+        params={
+            "q": query,
+            "domain": domain,
+            "min_year": min_year,
+            "format": "bibtex"
         }
+    )
+    
+    papers = response.json()
+    
+    return {
+        "papers": papers["results"],
+        "total_count": papers["total"],
+        "domain": domain,
+        "bibtex": papers.get("bibtex", "")
+    }
 ```
 
-### Integrating with Jupyter Notebooks
+### Tool Integration Checklist
 
-```python
-from ai_research_engineer import DataScientist
-from IPython.display import display, Markdown, HTML
-import asyncio
+When adding custom tools:
 
-async def notebook_analysis(query, files=None):
-    """Run analysis in Jupyter with rich formatting."""
-    display(Markdown(f"## Analysis Request\n\n{query}"))
-    
-    async with DataScientist() as ds:
-        display(Markdown("### Workflow Progress"))
-        
-        current_phase = None
-        async for event in await ds.run_async(
-            query,
-            files=files,
-            stream=True
-        ):
-            author = event.get('author', '')
-            
-            # Track phase changes
-            if 'plan_maker' in author and current_phase != 'Planning':
-                current_phase = 'Planning'
-                display(Markdown(f"**Phase: {current_phase}**"))
-            elif 'coding_agent' in author and current_phase != 'Execution':
-                current_phase = 'Execution'
-                display(Markdown(f"**Phase: {current_phase}**"))
-            elif 'summary' in author and current_phase != 'Summary':
-                current_phase = 'Summary'
-                display(Markdown(f"**Phase: {current_phase}**"))
-            
-            if event['type'] == 'message':
-                content = event['content']
-                # Display formatted messages
-                if len(content) < 200:
-                    display(Markdown(f"*{author}*: {content}"))
-                    
-            elif event['type'] == 'completed':
-                files = event['files_created']
-                display(Markdown(f"### Results\n\n**Files Created:**"))
-                for f in files:
-                    display(Markdown(f"- `{f}`"))
-
-# Usage in notebook
-await notebook_analysis("Analyze customer churn", files=[('data.csv', data)])
-```
-
-### Custom Session Management
-
-```python
-from ai_research_engineer import DataScientist
-import json
-from pathlib import Path
-
-class PersistentDataScientist:
-    """DataScientist with session persistence."""
-    
-    def __init__(self, session_dir="./sessions"):
-        self.session_dir = Path(session_dir)
-        self.session_dir.mkdir(exist_ok=True)
-        self.ds = None
-        self.session_id = None
-    
-    async def start_session(self, session_id=None):
-        """Start or resume a session."""
-        self.ds = DataScientist()
-        await self.ds.__aenter__()
-        
-        if session_id:
-            # Resume existing session
-            self.session_id = session_id
-            context = self.load_context(session_id)
-        else:
-            # New session
-            self.session_id = self.ds.session_id
-            context = {}
-        
-        return context
-    
-    def load_context(self, session_id):
-        """Load session context."""
-        context_file = self.session_dir / f"{session_id}.json"
-        if context_file.exists():
-            with open(context_file) as f:
-                return json.load(f)
-        return {}
-    
-    def save_context(self, context):
-        """Save session context."""
-        context_file = self.session_dir / f"{self.session_id}.json"
-        with open(context_file, 'w') as f:
-            json.dump(context, f, indent=2)
-    
-    async def run(self, query, context=None):
-        """Run query with persistent context."""
-        if context is None:
-            context = self.load_context(self.session_id)
-        
-        result = await self.ds.run_async(query, context=context)
-        self.save_context(context)
-        
-        return result
-    
-    async def close(self):
-        """Close session."""
-        if self.ds:
-            await self.ds.__aexit__(None, None, None)
-
-# Usage
-pds = PersistentDataScientist()
-context = await pds.start_session()
-
-# Run queries
-result1 = await pds.run("Analyze this dataset", context)
-result2 = await pds.run("What are the key trends?", context)
-
-await pds.close()
-```
+- ✅ **Error Handling**: Wrap external API calls in try-catch
+- ✅ **Rate Limiting**: Implement backoff for rate-limited APIs
+- ✅ **Logging**: Use the session logger for debugging
+- ✅ **Validation**: Validate input parameters before processing
+- ✅ **Return Format**: Ensure consistent dictionary structure
+- ✅ **Documentation**: Include clear docstrings for agent understanding
+- ✅ **Testing**: Test tools with mock queries before deploying
 
 ## Environment Configuration
 
-When extending the system, be aware of these environment variables:
+### Required Variables
 
-**Required:**
-- `OPENROUTER_API_KEY`: For ADK agents using DEFAULT_MODEL
-- `ANTHROPIC_API_KEY`: For Claude Code agent
+- **`OPENROUTER_API_KEY`**: Powers the ADK orchestration agents (Idea Generator, Plan Maker, Novelty Scorer, etc.)
+- **`ANTHROPIC_API_KEY`**: Powers the Claude Code implementer for writing and validating code
+- **`SEMANTIC_SCHOLAR_API_KEY`**: (Highly Recommended) Prevents rate-limit 429 errors during deep literature reviews
 
-**Optional:**
-- `DEFAULT_MODEL`: Model for planning/review (default: `google/gemini-2.5-pro`)
-- `REVIEW_MODEL`: Model for review agents (default: same as DEFAULT_MODEL)
-- `CODING_MODEL`: Model for coding agent (default: `claude-sonnet-4-5-20250929`)
+### Optional Variables for Extensions
 
-Models with provider prefixes (e.g., `google/`, `anthropic/`) are automatically routed through OpenRouter via LiteLLM.
+```bash
+# Internal APIs
+INTERNAL_API_KEY="your_internal_api_key"
+INTERNAL_API_BASE="https://api.company.com"
 
-## Best Practices
+# Domain-Specific Services
+BIOMEDICAL_DB_KEY="clinicaltrials_api_key"
+QUANTUM_SIMULATOR_API="qiskit_ibm_api_key"
 
-1. **Test Custom Prompts Thoroughly**: Validate prompt changes with diverse queries
-2. **Use Type Hints**: Always include type hints in custom code
-3. **Handle Errors**: Implement proper error handling in custom agents
-4. **Document Customizations**: Add docstrings explaining custom behavior
-5. **Keep Prompts Modular**: Break complex prompts into reusable components
-6. **Version Control Prompts**: Track prompt changes like code
-7. **Monitor Agent Behavior**: Log and analyze agent outputs during development
-8. **Model Configuration**: Use environment variables for model configuration rather than hardcoding
+# Compute Infrastructure
+SLURM_CLUSTER_HOST="gpu-cluster.company.com"
+SLURM_CLUSTER_USER="research_user"
 
-## See Also
+# Custom Model Configuration
+CUSTOM_DEFAULT_MODEL="openrouter/your-custom-model"
+CUSTOM_CODING_MODEL="openrouter/your-coding-optimized-model"
 
-See the `docs/` folder for additional guides on getting started, API reference, CLI usage, tools configuration, and technical architecture.
+# Feature Flags
+ENABLE_ADAPTIVE_REPLANNING="true"
+ENABLE_EVENT_COMPRESSION="true"
+MAX_CONTEXT_EVENTS="40"
+```
+
+### Loading Custom Environment
+
+Create a `.env.local` file for development:
+
+```bash
+# Source before running experiments
+source .env.local
+uv run ai-research-engineer "Your query" --mode orchestrated
+```
+
+## Advanced Customization Patterns
+
+### Pattern 1: Domain-Specific Agent Pipeline
+
+For specialized research domains, create a custom workflow that inserts domain-specific validation:
+
+```python
+# src/ai_research_engineer/custom_workflows/biomedical_pipeline.py
+
+from ai_research_engineer.agents import SequentialAgent
+
+class BiomedicalResearchPipeline(SequentialAgent):
+    """
+    Specialized pipeline for biomedical AI research with 
+    ethical review and clinical validation stages.
+    """
+    
+    def __init__(self, working_dir: str):
+        stages = [
+            "ideation",           # Novel idea generation
+            "ethics_review",      # NEW: Ethics/IRB check
+            "planning",           # Methodology design
+            "clinical_validation",# NEW: Clinical data consideration
+            "execution",          # Code implementation
+            "regulatory_check",   # NEW: FDA/regulatory compliance
+            "synthesis"           # Academic manuscript
+        ]
+        
+        super().__init__(stages=stages, working_dir=working_dir)
+```
+
+### Pattern 2: Multi-Model Ensemble
+
+Use multiple language models for different phases:
+
+```python
+# config/multi_model_config.py
+
+class MultiModelConfig:
+    """
+    Route different agents through different models based on task complexity.
+    """
+    
+    IDEATION_MODEL = "openrouter/claude-opus-4-1"      # Complex reasoning
+    PLANNING_MODEL = "openrouter/claude-sonnet-4"      # Balanced
+    CODING_MODEL = "openrouter/claude-sonnet-4"        # Code generation
+    REVIEW_MODEL = "openrouter/claude-haiku-3"         # Fast validation
+    SUMMARY_MODEL = "openrouter/claude-opus-4-1"       # High-quality writing
+```
+
+### Pattern 3: Hybrid Human-AI Workflow
+
+Add checkpoints for human review:
+
+```python
+# src/ai_research_engineer/custom_workflows/human_in_loop.py
+
+def run_with_human_checkpoints(query: str, working_dir: str):
+    """
+    Execute workflow with human approval checkpoints.
+    """
+    
+    # Phase 1: Automated Ideation
+    ideation_result = run_ideation_phase(query)
+    
+    # CHECKPOINT 1: Approve research hypothesis
+    print("Proposed Research Direction:")
+    print(ideation_result["hypothesis"])
+    approved = input("Approve this direction? (y/n): ")
+    
+    if approved.lower() != 'y':
+        return {"status": "rejected_at_ideation"}
+    
+    # Phase 2: Automated Planning
+    plan = run_planning_phase(ideation_result)
+    
+    # CHECKPOINT 2: Review experimental design
+    print("Proposed Experimental Plan:")
+    print(plan["methodology"])
+    approved = input("Approve this plan? (y/n): ")
+    
+    if approved.lower() != 'y':
+        return {"status": "rejected_at_planning"}
+    
+    # Phase 3-4: Automated Execution & Synthesis
+    results = run_execution_phase(plan)
+    manuscript = run_synthesis_phase(results)
+    
+    return {"status": "completed", "manuscript": manuscript}
+```
+
+## Validation & Testing
+
+When extending the framework:
+
+### Test Custom Prompts
+
+```bash
+# Test a modified prompt with a simple query
+uv run ai-research-engineer \
+  "Test query for validation" \
+  --mode orchestrated \
+  --working-dir ./test_extension \
+  --verbose
+```
+
+### Test Custom Tools
+
+```python
+# test_custom_tool.py
+from my_custom_tools import query_internal_dataset
+
+def test_tool():
+    result = query_internal_dataset(
+        dataset_name="genomics_db",
+        query="CRISPR applications"
+    )
+    
+    assert "papers" in result
+    assert result["total_count"] > 0
+    assert result["domain"] == "biology"
+    
+    print("✓ Tool test passed")
+
+if __name__ == "__main__":
+    test_tool()
+```
+
+### Integration Testing
+
+```bash
+# Run a full workflow with extensions
+uv run ai-research-engineer \
+  "Your domain-specific research question" \
+  --mode orchestrated \
+  --verbose
+```
+
+## Deployment & Versioning
+
+### Versioning Custom Extensions
+
+```bash
+# Track custom extensions in git
+git checkout -b feature/quantum-ml-extension
+# Make your changes
+git commit -am "Add quantum ML support"
+git push origin feature/quantum-ml-extension
+```
+
+### Environment-Specific Deployments
+
+```bash
+# Development
+export ENVIRONMENT=dev
+source .env.dev
+uv run ai-research-engineer "query" --mode orchestrated
+
+# Production
+export ENVIRONMENT=prod
+source .env.prod
+uv run ai-research-engineer "query" --mode orchestrated
+```
+
+## Support for Custom Extensions
+
+- **Documentation**: Keep comments explaining non-obvious customizations
+- **Error Messages**: Include context when tools fail
+- **Logging**: Use structured logging for debugging extensions
+- **Fallbacks**: Provide graceful degradation if custom tools are unavailable
+
+## Next Steps
+
+1. **Modify a prompt** for your domain (start with `coding_base.md`)
+2. **Create a custom tool** for your primary use case
+3. **Test extensively** with simple queries before complex research
+4. **Document your extensions** for team reuse
+5. **Share improvements** back to the community
+
+Happy customizing! 🔧
