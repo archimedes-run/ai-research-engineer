@@ -55,6 +55,12 @@ logger = logging.getLogger(__name__)
     help='REQUIRED: Execution mode - "orchestrated" (full multi-agent with planning) or "simple" (direct coding)',
 )
 @click.option(
+    '--research-mode',
+    type=click.Choice(['novelty', 'replication']),
+    default='novelty',
+    help='Toggle between inventing new architectures (novelty) or strict paper replication (replication).',
+)
+@click.option(
     '--working-dir',
     '-w',
     type=click.Path(),
@@ -86,6 +92,7 @@ def main(
     query: Optional[str],
     files: tuple,
     mode: str,
+    research_mode: str,
     working_dir: Optional[str],
     temp_dir: bool,
     keep_files: bool,
@@ -202,7 +209,8 @@ def main(
             agent_type=agent_type,
             working_dir=working_dir_to_use,
             auto_cleanup=auto_cleanup,
-            template=template
+            template=template,
+            research_mode=research_mode
         )
 
         # Configure logging to file
@@ -269,6 +277,7 @@ def main(
                 click.echo("Files will be preserved after completion")
 
         click.echo(f"Logs: {log_path}")
+        click.echo(f"Research Mode: {research_mode.capitalize()}")
         click.echo("")
 
     except Exception as e:

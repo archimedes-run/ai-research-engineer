@@ -1,6 +1,7 @@
 """
 Advanced Research operations for the AI Research Engineer.
-Combines Semantic Scholar for impact-filtering and ArXiv for full-text ingestion.
+Combines Semantic Scholar for impact-filtering, findpapers for omni-search,
+and ArXiv for full-text ingestion.
 Implements rate-limiting, HTML-first downloading, and local paper listing.
 """
 
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Optional, List
 
 import arxiv
+import findpapers
 from semanticscholar import SemanticScholar
 
 logger = logging.getLogger(__name__)
@@ -22,6 +24,84 @@ logger = logging.getLogger(__name__)
 # Initialize Semantic Scholar
 api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
 sch = SemanticScholar(api_key=api_key)
+
+
+def omni_search_papers(query: str, limit: int = 10) -> str:
+    """
+    Search for research papers across ALL major databases 
+    (arXiv, PubMed, IEEE, ACM, Scopus) simultaneously using findpapers.
+    """
+    logger.info(f"[Tool:omni_search] Querying all databases for: '{query}'")
+    try:
+        search_result = findpapers.search(query, limit_per_database=limit)
+        
+        results = []
+        for paper in search_result.papers:
+            results.append({
+                "title": paper.title,
+                "authors": [a.name for a in paper.authors],
+                "year": paper.publication_date.year if paper.publication_date else "Unknown",
+                "abstract": paper.abstract[:500] + "..." if paper.abstract else "No abstract",
+                "databases": list(paper.databases),
+                "urls": list(paper.urls)
+            })
+            
+        return json.dumps(results[:limit], indent=2)
+    except Exception as e:
+        return f"Error in Omni-Search: {e}"
+
+
+def build_citation_graph(paper_id: str, working_dir: str) -> str:
+    """
+    Builds a markdown tree of a paper's citations and references.
+    CRITICAL for agents to understand the baseline models they need to compare against.
+    """
+    logger.info(f"[Tool:build_citation_graph] Mapping ecosystem for {paper_id}")
+    try:
+        # Fetch the main paper with references and citations
+        p = sch.get_paper(
+            paper_id, 
+            fields=['title', 'year', 'references.title', 'references.paperId', 'citations.title', 'citations.paperId']
+        )
+        
+        graph_md = [f"# Citation Graph: {p.title} ({p.year})\n"]
+        
+        # 1. Map the Ancestors (References - usually the Baselines!)
+        graph_md.append("## Ancestors (Prior Work & Baselines)")
+        references = getattr(p, 'references', [])
+        if references:
+            for ref in references[:10]: # Limit to top 10 to save tokens
+                title = getattr(ref, 'title', 'Unknown Title')
+                pid = getattr(ref, 'paperId', 'Unknown ID')
+                graph_md.append(f"- [REF] {title} (ID: {pid})")
+        else:
+            graph_md.append("- No references found.")
+            
+        # 2. Map the Descendants (Citations - usually Ablations or Improvements)
+        graph_md.append("\n## Descendants (Subsequent Work)")
+        citations = getattr(p, 'citations', [])
+        if citations:
+            for cite in citations[:10]:
+                title = getattr(cite, 'title', 'Unknown Title')
+                pid = getattr(cite, 'paperId', 'Unknown ID')
+                graph_md.append(f"- [CITE] {title} (ID: {pid})")
+        else:
+            graph_md.append("- No citations found.")
+            
+        final_graph = "\n".join(graph_md)
+        
+        # Automatically save this to the Research Vault
+        if working_dir:
+            graph_path = Path(working_dir) / "knowledge_base" / f"citation_graph_{paper_id[:8]}.md"
+            # Ensure directory exists before writing
+            graph_path.parent.mkdir(parents=True, exist_ok=True)
+            graph_path.write_text(final_graph, encoding='utf-8')
+            return f"Citation graph built and saved to {graph_path.name}:\n\n{final_graph}"
+            
+        return final_graph
+    except Exception as e:
+        return f"Error building citation graph: {e}"
+
 
 def discover_high_impact_papers(query: str, limit: int = 5, min_citations: int = 10) -> str:
     """
@@ -53,6 +133,7 @@ def discover_high_impact_papers(query: str, limit: int = 5, min_citations: int =
         return json.dumps(papers, indent=2)
     except Exception as e:
         return f"Error discovering papers: {e}"
+
 
 def search_papers(
     query: str, 
@@ -106,6 +187,7 @@ def search_papers(
     except Exception as e:
         return f"Error searching arXiv: {e}"
 
+
 def download_paper(paper_id: str, working_dir: str) -> str:
     """
     Download a paper by its arXiv ID. Tries HTML first, falls back to PDF. 
@@ -144,6 +226,7 @@ def download_paper(paper_id: str, working_dir: str) -> str:
     except Exception as e:
         return f"Error downloading paper {paper_id}: {e}"
 
+
 def list_papers(working_dir: str) -> str:
     """
     List all papers downloaded locally. Returns arXiv IDs.
@@ -160,6 +243,7 @@ def list_papers(working_dir: str) -> str:
             papers.append(f.name)
             
     return json.dumps({"downloaded_papers": papers}, indent=2)
+
 
 def read_paper(paper_id: str, working_dir: str) -> str:
     """

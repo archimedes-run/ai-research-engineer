@@ -48,6 +48,7 @@ class SessionConfig:
     working_dir: Optional[str] = None
     auto_cleanup: bool = True
     template: str = "NeurReps_2024_Template"
+    research_mode: str = "novelty"  # Added research_mode to config
 
 
 @dataclass
@@ -93,6 +94,8 @@ class AIEngineer:
         Defaults to False (files are preserved)
     template: str, optional
         LaTeX template to use for the final manuscript
+    research_mode: str, optional
+        "novelty" for inventing new architectures or "replication" for strict PaperBench evaluation.
     """
 
     def __init__(
@@ -101,7 +104,8 @@ class AIEngineer:
         mcp_servers: Optional[List[str]] = None,
         working_dir: Optional[str] = None,
         auto_cleanup: Optional[bool] = None,
-        template: str = "NeurReps_2024_Template"
+        template: str = "NeurReps_2024_Template",
+        research_mode: str = "novelty"
     ):
         """Initialize Agentic Data Scientist core with configuration."""
         # Generate session ID
@@ -129,7 +133,8 @@ class AIEngineer:
             mcp_servers=mcp_servers,
             working_dir=str(self.working_dir),
             auto_cleanup=self.auto_cleanup,
-            template=template
+            template=template,
+            research_mode=research_mode
         )
 
         # ADK components
@@ -141,6 +146,7 @@ class AIEngineer:
         logger.info(f"Initialized Agentic Data Scientist session: {self.session_id}")
         logger.info(f"Working directory: {self.working_dir}")
         logger.info(f"Auto-cleanup enabled: {self.auto_cleanup}")
+        logger.info(f"Research Mode: {self.config.research_mode}")
 
     async def _setup_agent(self):
         """Set up the agent and session service."""
@@ -151,10 +157,12 @@ class AIEngineer:
             from ai_research_engineer.agents.adk import create_app
 
             # Create App instead of bare agent
+            # Pass research_mode into create_app
             app = create_app(
                 working_dir=str(self.working_dir),
                 mcp_servers=self.config.mcp_servers,
-                template=self.config.template
+                template=self.config.template,
+                research_mode=self.config.research_mode
             )
 
             # Store both app and agent references

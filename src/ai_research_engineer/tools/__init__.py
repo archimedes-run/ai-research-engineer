@@ -35,7 +35,9 @@ from ai_research_engineer.tools.research_ops import (
     search_papers as arxiv_search_papers,
     download_paper,
     list_papers as list_arxiv_papers,
-    read_paper
+    read_paper,
+    omni_search_papers,
+    build_citation_graph
 )
 
 # Import Code Graph tools
@@ -75,6 +77,8 @@ __all__ = [
     "download_paper",
     "list_arxiv_papers",
     "read_paper",
+    "omni_search_papers",
+    "build_citation_graph",
     
     # Code Graph tools
     "build_knowledge_graph",

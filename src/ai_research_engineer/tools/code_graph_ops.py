@@ -1,106 +1,148 @@
 """
-Code Graph operations for the AI Research Engineer.
-Natively wraps the code-review-graph package for structural code intelligence,
-allowing agents to understand blast radius, call graphs, and test gaps
-without blowing up the token context window.
+Code Graph operations for the AI Research Engineer using Graphify.
+Executes CLI commands to build and query the codebase knowledge graph,
+providing massive token reduction (71.5x) and semantic structure.
 """
 
 import logging
-from typing import Any, Optional
+import subprocess
 from pathlib import Path
-
-# Natively import the powerful tools from code_review_graph
-from code_review_graph.tools import (
-    build_or_update_graph,
-    get_minimal_context,
-    get_impact_radius,
-    query_graph,
-    semantic_search_nodes,
-    get_review_context,
-    detect_changes_func,
-    get_architecture_overview_func
-)
 
 logger = logging.getLogger(__name__)
 
 def build_knowledge_graph(repo_root: str) -> str:
     """
-    Builds or updates the SQLite knowledge graph for the codebase.
+    Builds or updates the Graphify knowledge graph for the codebase.
     The agent MUST run this before using any other code graph tools.
     """
     logger.info(f"[Tool:build_knowledge_graph] Building graph for {repo_root}")
     try:
-        # We force a postprocess="minimal" for speed during autonomous loops
-        result = build_or_update_graph(
-            full_rebuild=False, 
-            repo_root=repo_root, 
-            postprocess="minimal"
+        # Run graphify CLI on the target directory
+        # Using --no-viz to skip HTML generation and save processing time
+        # Removed the '.' argument to prevent 'unknown command' CLI errors. 
+        # It relies on cwd=repo_root to target the current directory automatically.
+        cmd = ["graphify", "--no-viz"]
+        result = subprocess.run(
+            cmd, 
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False
         )
-        return str(result.get("summary", "Graph built successfully."))
+        
+        if result.returncode == 0:
+            report_path = Path(repo_root) / "graphify-out" / "GRAPH_REPORT.md"
+            if report_path.exists():
+                return f"Graph built successfully. CRITICAL: You MUST use the read_file tool to read 'graphify-out/GRAPH_REPORT.md' for the high-level architecture overview before proceeding."
+            return "Graph built successfully, but GRAPH_REPORT.md was not generated."
+        else:
+            return f"Error building graph. stderr: {result.stderr}"
     except Exception as e:
-        return f"Error building graph: {e}"
+        return f"Exception building graph: {e}"
 
 def get_code_context(task: str, repo_root: str) -> str:
     """
-    Get an ultra-compact (~100 tokens) structural context for a task.
-    Shows graph stats, risk score, and top communities.
+    Use Graphify to explain a specific architecture, task, or module.
     """
     logger.info(f"[Tool:get_code_context] Task: {task}")
     try:
-        result = get_minimal_context(task=task, repo_root=repo_root)
-        return str(result.get("summary", result))
+        cmd = ["graphify", "explain", task]
+        result = subprocess.run(
+            cmd,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if result.returncode == 0:
+            return result.stdout
+        return f"Error getting context: {result.stderr}"
     except Exception as e:
-        return f"Error getting context: {e}"
+        return f"Exception getting context: {e}"
 
 def get_code_blast_radius(changed_files: list[str], repo_root: str) -> str:
     """
-    Analyze the blast radius of specific files.
-    Shows which functions, classes, and files are impacted by changes.
+    Analyze the blast radius of specific files using Graphify's DFS trace.
     """
     logger.info(f"[Tool:get_code_blast_radius] Files: {changed_files}")
     try:
-        result = get_impact_radius(
-            changed_files=changed_files, 
-            max_depth=2, 
-            repo_root=repo_root, 
-            detail_level="minimal"
+        graph_path = Path(repo_root) / "graphify-out" / "graph.json"
+        target = changed_files[0] if isinstance(changed_files, list) and changed_files else str(changed_files)
+        
+        query = f"what depends on or connects to {target}?"
+        cmd = ["graphify", "query", query, "--dfs", "--graph", str(graph_path)]
+        
+        result = subprocess.run(
+            cmd,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False
         )
-        return str(result)
+        
+        if result.returncode == 0:
+            output = result.stdout
+            if len(output) > 10000:
+                output = output[:10000] + "\n\n...[TRUNCATED TO SAVE TOKENS]..."
+            return output
+        return f"Error calculating blast radius: {result.stderr}"
     except Exception as e:
-        return f"Error calculating blast radius: {e}"
+        return f"Exception calculating blast radius: {e}"
 
 def query_code_structure(pattern: str, target: str, repo_root: str) -> str:
     """
-    Run a predefined graph query to explore code relationships.
-    Patterns: callers_of, callees_of, imports_of, importers_of, children_of, tests_for
+    Find the exact path and structural relationship between two nodes in the codebase.
+    (e.g., pattern="Path between", target="ModuleA and ModuleB")
     """
-    logger.info(f"[Tool:query_code_structure] {pattern} for {target}")
+    logger.info(f"[Tool:query_code_structure] Path trace for {target}")
     try:
-        result = query_graph(
-            pattern=pattern, 
-            target=target, 
-            repo_root=repo_root, 
-            detail_level="standard"
+        # If target has two items separated by 'and', use the path command
+        if " and " in target.lower():
+            nodes = target.lower().split(" and ")
+            cmd = ["graphify", "path", nodes[0].strip(), nodes[1].strip()]
+        else:
+            # Fallback to standard query
+            graph_path = Path(repo_root) / "graphify-out" / "graph.json"
+            cmd = ["graphify", "query", f"Show structure of {target}", "--graph", str(graph_path)]
+
+        result = subprocess.run(
+            cmd,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False
         )
-        # Extract just the essential info to save tokens
-        if result.get("status") == "ok":
-            return str(result.get("results", result.get("summary")))
-        return str(result)
+        if result.returncode == 0:
+            return result.stdout
+        return f"Error querying structure: {result.stderr}"
     except Exception as e:
-        return f"Error querying graph: {e}"
+        return f"Exception querying structure: {e}"
 
 def search_code_semantically(query: str, repo_root: str) -> str:
     """
-    Search for code entities (functions, classes) by semantic similarity or keyword.
+    Query the Graphify knowledge graph using natural language to find structural 
+    and semantic relationships.
     """
     logger.info(f"[Tool:search_code_semantically] Query: {query}")
     try:
-        result = semantic_search_nodes(
-            query=query, 
-            repo_root=repo_root, 
-            limit=5, 
-            detail_level="minimal"
+        graph_path = Path(repo_root) / "graphify-out" / "graph.json"
+        if not graph_path.exists():
+            return "Error: graph.json not found. Run build_knowledge_graph first."
+            
+        cmd = ["graphify", "query", query, "--graph", str(graph_path)]
+        result = subprocess.run(
+            cmd,
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False
         )
-        return str(result.get("results", result))
+        
+        if result.returncode == 0:
+            output = result.stdout
+            # if len(output) > 10000:
+            #     output = output[:10000] + "\n\n...[TRUNCATED TO SAVE TOKENS]..."
+            return output
+        return f"Error querying graph: {result.stderr}"
     except Exception as e:
-        return f"Error searching code: {e}"
+        return f"Exception querying graph: {e}"

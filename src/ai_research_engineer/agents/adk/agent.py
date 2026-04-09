@@ -404,8 +404,9 @@ class NonEscalatingLoopAgent(LoopAgent):
 def create_agent(
     working_dir: Optional[str] = None,
     mcp_servers: Optional[List[str]] = None,
-    template: str = "NeurReps_2024_Template"
-) -> LoopDetectionAgent:
+    template: str = "NeurReps_2024_Template",
+    research_mode: str = "novelty"
+) -> SequentialAgent:
     """
     Factory function to create an AI Research Engineer ADK agent.
 
@@ -417,11 +418,13 @@ def create_agent(
         List of MCP servers to enable for tools
     template: str, optional
         LaTeX template to use for the final manuscript
+    research_mode: str
+        "novelty" for inventing new ideas or "replication" for strictly replicating existing papers.
 
     Returns
     -------
-    LoopDetectionAgent
-        The configured root agent
+    SequentialAgent
+        The configured root workflow agent
     """
     # Create working directory if not provided
     if working_dir is None:
@@ -431,7 +434,7 @@ def create_agent(
     working_dir = Path(working_dir)
     working_dir.mkdir(parents=True, exist_ok=True)
     
-    logger.info(f"[AIResearcher] Creating ADK agent with working_dir={working_dir}")
+    logger.info(f"[AIResearcher] Creating ADK agent with working_dir={working_dir}, mode={research_mode}")
 
     # Pre-initialize the Research Vault folders
     for subdir in ["user_data", "workflow", "results", "literature", "knowledge_base", "manuscript"]:
@@ -475,12 +478,14 @@ def create_agent(
         get_recommendations,
         list_tracked_papers,
         export_bibtex,
-        # ArXiv Tools
+        # ArXiv & Advanced Tools
         discover_high_impact_papers,
         arxiv_search_papers,
         download_paper,
         list_arxiv_papers,
         read_paper,
+        omni_search_papers,
+        build_citation_graph,
         # Code Graph Tools
         build_knowledge_graph,
         get_code_context,
@@ -551,6 +556,9 @@ def create_agent(
     def read_paper_bound(paper_id: str) -> str:
         return read_paper(paper_id, working_dir_str)
 
+    def build_citation_graph_bound(paper_id: str) -> str:
+        return build_citation_graph(paper_id, working_dir_str)
+
     # --- Code Graph Tool Bindings ---
     def build_knowledge_graph_bound() -> str:
         return build_knowledge_graph(working_dir_str)
@@ -591,12 +599,14 @@ def create_agent(
         list_tracked_papers_bound,
         export_bibtex_bound,
         
-        # ArXiv Tools
+        # ArXiv & Advanced Tools
         discover_high_impact_papers, # No workspace needed
         arxiv_search_papers,         # No workspace needed
         download_paper_bound,
         list_arxiv_papers_bound,
         read_paper_bound,
+        omni_search_papers,          # No workspace needed
+        build_citation_graph_bound,
         
         # Code Graph Tools
         build_knowledge_graph_bound,
@@ -646,52 +656,59 @@ def create_agent(
         generate_content_config=get_generate_content_config(temperature=0.3),
     )
 
-    # ------------------------- Ideation Loop (NEW) -------------------------
+    # ------------------------- Dynamic Ideation/Replication Loop (NEW) -------------------------
     
-    logger.info("[AIResearcher] Loading idea generator prompt")
-    idea_generator_instructions = load_prompt("idea_generator")
+    if research_mode == "replication":
+        logger.info("[Mode] Initializing Strict Replication Mode (PaperBench)")
+        generator_instructions = load_prompt("paper_analyzer")
+        scorer_instructions = load_prompt("replication_verifier")
+        generator_desc = "Analyzes a paper and strictly extracts its methodology for exact replication."
+        scorer_desc = "Verifies the extracted methodology against the original paper to ensure no hallucinated architectures or novelty."
+    else:
+        logger.info("[Mode] Initializing Novelty Mode (SaaS)")
+        generator_instructions = load_prompt("idea_generator")
+        scorer_instructions = load_prompt("novelty_scorer")
+        generator_desc = "Generates novel ML architectures and hypotheses."
+        scorer_desc = "Evaluates ideas for novelty, feasibility, and impact using literature tools."
 
-    logger.info(f"[AIResearcher] Creating idea generator agent with model={DEFAULT_MODEL}")
-    idea_generator_compression = create_compression_callback(event_threshold=40, overlap_size=20)
+    logger.info(f"[AIResearcher] Creating idea generator/analyzer agent with model={DEFAULT_MODEL}")
+    generator_compression = create_compression_callback(event_threshold=40, overlap_size=20)
 
     idea_generator_agent = LoopDetectionAgent(
         name="idea_generator_agent",
         model=DEFAULT_MODEL,
-        description="Generates novel ML architectures and hypotheses.",
-        instruction=idea_generator_instructions,
+        description=generator_desc,
+        instruction=generator_instructions,
         tools=tools,
         output_key="generated_ideas",
         planner=BuiltInPlanner(
             thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=-1),
         ),
-        # Slightly higher temperature for creative brainstorming
-        generate_content_config=get_generate_content_config(temperature=0.6), 
-        after_agent_callback=idea_generator_compression,
+        # Slightly higher temperature for creative brainstorming, lower for strict replication
+        generate_content_config=get_generate_content_config(temperature=0.2 if research_mode == "replication" else 0.6), 
+        after_agent_callback=generator_compression,
     )
 
-    logger.info("[AIResearcher] Loading novelty scorer prompt")
-    novelty_scorer_instructions = load_prompt("novelty_scorer")
-
-    logger.info(f"[AIResearcher] Creating novelty scorer agent with model={REVIEW_MODEL}")
-    novelty_scorer_compression = create_compression_callback(event_threshold=40, overlap_size=20)
+    logger.info(f"[AIResearcher] Creating novelty scorer/verifier agent with model={REVIEW_MODEL}")
+    scorer_compression = create_compression_callback(event_threshold=40, overlap_size=20)
 
     novelty_scorer_agent = LoopDetectionAgent(
         name="novelty_scorer_agent",
         model=REVIEW_MODEL,
-        description="Evaluates ideas for novelty, feasibility, and impact using literature tools.",
-        instruction=novelty_scorer_instructions,
+        description=scorer_desc,
+        instruction=scorer_instructions,
         tools=tools,
         output_key="novelty_scorer_feedback",
         planner=BuiltInPlanner(
             thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=-1),
         ),
-        generate_content_config=get_generate_content_config(temperature=0.2),
-        after_agent_callback=novelty_scorer_compression,
+        generate_content_config=get_generate_content_config(temperature=0.1 if research_mode == "replication" else 0.2),
+        after_agent_callback=scorer_compression,
     )
 
     ideation_loop = NonEscalatingLoopAgent(
         name="ideation_loop",
-        description="Iteratively brainstorms and validates novel research ideas.",
+        description="Iteratively extracts or brainstorms research ideas based on the specified mode.",
         sub_agents=[
             idea_generator_agent,
             novelty_scorer_agent,
@@ -858,7 +875,7 @@ def create_agent(
         name="ai_research_engineer_workflow",
         description="Complete AI Research Engineer workflow with adaptive stage-wise implementation.",
         sub_agents=[
-            ideation_loop,              # NEW: Brainstorms and validates ideas first!
+            ideation_loop,              # Brainstorms OR extracts specs based on mode
             high_level_planning_loop,   # THEN plans out the execution
             high_level_plan_parser,
             stage_orchestrator,
@@ -874,7 +891,8 @@ def create_agent(
 def create_app(
     working_dir: Optional[str] = None,
     mcp_servers: Optional[List[str]] = None,
-    template: str = "NeurReps_2024_Template"
+    template: str = "NeurReps_2024_Template",
+    research_mode: str = "novelty"
 ) -> App:
     """
     Create an App instance with context management for the ADK agent.
@@ -887,6 +905,8 @@ def create_app(
         List of MCP servers to enable for tools
     template: str, optional
         LaTeX template to use for the final manuscript
+    research_mode: str
+        "novelty" for inventing new ideas or "replication" for strictly replicating existing papers.
 
     Returns
     -------
@@ -894,7 +914,7 @@ def create_app(
         The configured App with context caching and compression
     """
     # Create the root agent
-    root_agent = create_agent(working_dir=working_dir, mcp_servers=mcp_servers, template=template)
+    root_agent = create_agent(working_dir=working_dir, mcp_servers=mcp_servers, template=template, research_mode=research_mode)
 
     # Configure context caching (just creating the config enables caching)
     cache_config = ContextCacheConfig()
