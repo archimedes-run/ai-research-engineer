@@ -8,6 +8,7 @@ with optional conversation context and file handling.
 import asyncio
 import logging
 import uuid
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -90,6 +91,8 @@ class AIEngineer:
     auto_cleanup : bool, optional
         Whether to automatically cleanup the working directory after completion.
         Defaults to False (files are preserved)
+    template: str, optional
+        LaTeX template to use for the final manuscript
     """
 
     def __init__(
@@ -294,6 +297,41 @@ class AIEngineer:
 
         return "\n".join(prompt_parts)
 
+    def _compile_latex(self):
+        """Compile the generated LaTeX manuscript into a PDF."""
+        manuscript_dir = self.working_dir / "manuscript"
+        if not manuscript_dir.exists():
+            return
+
+        # Target the specific main .tex file to avoid compiling fragments like example-teximage.tex
+        main_tex = None
+        if self.config.template == 'Arxiv___PRIME_AI_Style_Template':
+            main_tex = manuscript_dir / "templateArxiv.tex"
+        elif self.config.template == 'NeurReps_2024_Template':
+            main_tex = manuscript_dir / "pmlr-sample.tex"
+        else:
+            # Fallback
+            tex_files = list(manuscript_dir.glob("*.tex"))
+            if tex_files:
+                main_tex = tex_files[0]
+
+        if main_tex and main_tex.exists():
+            logger.info(f"Compiling LaTeX manuscript: {main_tex.name}")
+            try:
+                # Run pdflatex twice to resolve references and TOC
+                for _ in range(2):
+                    subprocess.run(
+                        ["pdflatex", "-interaction=nonstopmode", main_tex.name],
+                        cwd=str(manuscript_dir),
+                        capture_output=True,
+                        check=True
+                    )
+                logger.info("PDF compilation successful!")
+            except subprocess.CalledProcessError as e:
+                logger.warning(f"LaTeX compilation failed: {e.stderr.decode('utf-8', errors='ignore')}")
+        else:
+            logger.warning(f"Could not find main .tex file for template {self.config.template}")
+
     async def run_async(
         self,
         message: str,
@@ -460,6 +498,9 @@ class AIEngineer:
                         )
                         yield event_to_dict(usage_event)
 
+            # Compile LaTeX into PDF at the end of the workflow
+            self._compile_latex()
+
             # Calculate duration
             duration = (datetime.now() - start_time).total_seconds()
 
@@ -520,6 +561,9 @@ class AIEngineer:
                                 author = getattr(event, 'author', 'agent')
                                 prefix = f"[{author}]" if not is_thought else f"[{author} - THINKING]"
                                 responses.append(f"{prefix}: {part.text}")
+
+            # Compile LaTeX into PDF at the end of the workflow
+            self._compile_latex()
 
             # Calculate duration
             duration = (datetime.now() - start_time).total_seconds()
