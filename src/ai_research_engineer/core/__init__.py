@@ -1,6 +1,6 @@
 """Core API and session management for Agentic Data Scientist."""
 
-from ai_research_engineer.core.api import DataScientist, FileInfo, Result, SessionConfig
+from ai_research_engineer.core.api import AIEngineer, FileInfo, Result, SessionConfig
 from ai_research_engineer.core.events import (
     CompletedEvent,
     ErrorEvent,
@@ -13,7 +13,7 @@ from ai_research_engineer.core.events import (
 
 
 __all__ = [
-    "DataScientist",
+    "AIEngineer",
     "Result",
     "SessionConfig",
     "FileInfo",

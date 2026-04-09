@@ -5,6 +5,7 @@ This module creates the multi-agent system with ideation, planning, orchestratio
 implementation, and verification agents.
 """
 
+import shutil
 import logging
 import warnings
 from pathlib import Path
@@ -403,6 +404,7 @@ class NonEscalatingLoopAgent(LoopAgent):
 def create_agent(
     working_dir: Optional[str] = None,
     mcp_servers: Optional[List[str]] = None,
+    template: str = "NeurReps_2024_Template"
 ) -> LoopDetectionAgent:
     """
     Factory function to create an AI Research Engineer ADK agent.
@@ -413,6 +415,8 @@ def create_agent(
         Working directory for the session
     mcp_servers : List[str], optional
         List of MCP servers to enable for tools
+    template: str, optional
+        LaTeX template to use for the final manuscript
 
     Returns
     -------
@@ -422,13 +426,32 @@ def create_agent(
     # Create working directory if not provided
     if working_dir is None:
         import tempfile
-
         working_dir = tempfile.mkdtemp(prefix="ai_research_")
 
     working_dir = Path(working_dir)
     working_dir.mkdir(parents=True, exist_ok=True)
-
+    
     logger.info(f"[AIResearcher] Creating ADK agent with working_dir={working_dir}")
+
+    # Pre-initialize the Research Vault folders
+    for subdir in ["user_data", "workflow", "results", "literature", "knowledge_base", "manuscript"]:
+        (working_dir / subdir).mkdir(parents=True, exist_ok=True)
+        
+    # Copy the selected template to the manuscript folder
+    template_src = Path.cwd() / "templates" / template
+    manuscript_dest = working_dir / "manuscript"
+    
+    if template_src.exists():
+        logger.info(f"[AIResearcher] Copying {template} to {manuscript_dest}")
+        for item in template_src.iterdir():
+            dest_item = manuscript_dest / item.name
+            if not dest_item.exists():
+                if item.is_dir():
+                    shutil.copytree(item, dest_item)
+                else:
+                    shutil.copy2(item, dest_item)
+    else:
+        logger.error(f"[AIResearcher] Template source not found: {template_src}")
 
     # Create local tools with working_dir bound via wrapper functions
     from ai_research_engineer.tools import (
@@ -439,6 +462,9 @@ def create_agent(
         read_file,
         read_media_file,
         search_files,
+        write_file,
+        query_duckdb,
+        get_schema,
         # Semantic Scholar Tools
         semantic_search_papers,
         get_paper_details,
@@ -471,6 +497,10 @@ def create_agent(
         """Read file contents with optional head/tail line limits."""
         return read_file(path, working_dir_str, head, tail)
 
+    def write_file_bound(path: str, content: str) -> str:
+        """Write content to a file (Markdown, LaTeX, JSON, BibTeX)."""
+        return write_file(path, content, working_dir_str)
+
     def read_media_file_bound(path: str) -> str:
         """Read binary/media files and return base64 encoded data."""
         return read_media_file(path, working_dir_str)
@@ -490,6 +520,14 @@ def create_agent(
     def get_file_info_bound(path: str) -> str:
         """Get detailed metadata about a file."""
         return get_file_info(path, working_dir_str)
+    
+    def query_duckdb_bound(query: str) -> str:
+        """Execute a read-only DuckDB SQL query against local CSV/Parquet files."""
+        return query_duckdb(query, working_dir_str)
+        
+    def get_schema_bound(filepath: str) -> str:
+        """Get the schema (columns and types) of a Parquet or CSV file."""
+        return get_schema(filepath, working_dir_str)
 
     # --- Academic Research Tool Bindings ---
     def semantic_search_papers_bound(query: str, year: Optional[str] = None, min_citations: int = 0, limit: int = 10) -> str:
@@ -529,14 +567,18 @@ def create_agent(
     def search_code_semantically_bound(query: str) -> str:
         return search_code_semantically(query, working_dir_str)
 
+
     tools = [
         # Base File Tools
         read_file_bound,
+        write_file_bound,
         read_media_file_bound,
         list_directory_bound,
         directory_tree_bound,
         search_files_bound,
         get_file_info_bound,
+        query_duckdb_bound,
+        get_schema_bound,
         
         # Semantic Scholar Tools
         semantic_search_papers_bound,
@@ -832,6 +874,7 @@ def create_agent(
 def create_app(
     working_dir: Optional[str] = None,
     mcp_servers: Optional[List[str]] = None,
+    template: str = "NeurReps_2024_Template"
 ) -> App:
     """
     Create an App instance with context management for the ADK agent.
@@ -842,6 +885,8 @@ def create_app(
         Working directory for the session
     mcp_servers : List[str], optional
         List of MCP servers to enable for tools
+    template: str, optional
+        LaTeX template to use for the final manuscript
 
     Returns
     -------
@@ -849,7 +894,7 @@ def create_app(
         The configured App with context caching and compression
     """
     # Create the root agent
-    root_agent = create_agent(working_dir=working_dir, mcp_servers=mcp_servers)
+    root_agent = create_agent(working_dir=working_dir, mcp_servers=mcp_servers, template=template)
 
     # Configure context caching (just creating the config enables caching)
     cache_config = ContextCacheConfig()

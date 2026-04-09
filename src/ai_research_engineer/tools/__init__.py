@@ -11,8 +11,10 @@ from ai_research_engineer.tools.file_ops import (
     read_file,
     read_media_file,
     search_files,
+    write_file
 )
 from ai_research_engineer.tools.web_ops import fetch_url
+from ai_research_engineer.tools.data_ops import query_duckdb, get_schema
 
 # Import Semantic Scholar tools
 from ai_research_engineer.tools.semantic_scholar_ops import (
@@ -54,6 +56,7 @@ __all__ = [
     "search_files",
     "get_file_info",
     "fetch_url",
+    "write_file",
     
     # Semantic Scholar tools
     "semantic_search_papers",
@@ -78,5 +81,9 @@ __all__ = [
     "get_code_context",
     "get_code_blast_radius",
     "query_code_structure",
-    "search_code_semantically"
+    "search_code_semantically",
+
+    # Data tools
+    "query_duckdb",
+    "get_schema"
 ]

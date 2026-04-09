@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from ai_research_engineer.core.api import DataScientist, FileInfo, Result, SessionConfig
+from ai_research_engineer.core.api import AIEngineer, FileInfo, Result, SessionConfig
 
 
 class TestSessionConfig:
@@ -75,20 +75,20 @@ class TestResult:
         assert result.response is None
 
 
-class TestDataScientist:
-    """Test DataScientist class."""
+class TestAIEngineer:
+    """Test AIEngineer class."""
 
     def test_initialization_adk(self):
-        """Test DataScientist initialization with ADK agent."""
-        ds = DataScientist(agent_type="adk")
+        """Test AIEngineer initialization with ADK agent."""
+        ds = AIEngineer(agent_type="adk")
         assert ds.config.agent_type == "adk"
         assert ds.session_id.startswith("session_")
         assert ds.working_dir.exists()
         ds.cleanup()
 
     def test_initialization_claude_code(self):
-        """Test DataScientist initialization with Claude Code agent."""
-        ds = DataScientist(agent_type="claude_code")
+        """Test AIEngineer initialization with Claude Code agent."""
+        ds = AIEngineer(agent_type="claude_code")
         assert ds.config.agent_type == "claude_code"
         assert ds.session_id.startswith("session_")
         assert ds.working_dir.exists()
@@ -96,7 +96,7 @@ class TestDataScientist:
 
     def test_save_files_bytes(self, tmp_path):
         """Test saving files from bytes."""
-        ds = DataScientist(agent_type="adk")
+        ds = AIEngineer(agent_type="adk")
         ds.working_dir = tmp_path
 
         content = b"Test content"
@@ -112,7 +112,7 @@ class TestDataScientist:
 
     def test_prepare_prompt_no_files(self):
         """Test prompt preparation without files."""
-        ds = DataScientist(agent_type="adk")
+        ds = AIEngineer(agent_type="adk")
         message = "Test message"
         prompt = ds.prepare_prompt(message)
         assert prompt == message
@@ -120,7 +120,7 @@ class TestDataScientist:
 
     def test_prepare_prompt_with_files(self):
         """Test prompt preparation with files."""
-        ds = DataScientist(agent_type="adk")
+        ds = AIEngineer(agent_type="adk")
         message = "Analyze these files"
         file_info = [FileInfo(name="data.csv", path="/tmp/data.csv", size_kb=10.5)]
 
@@ -133,8 +133,8 @@ class TestDataScientist:
         ds.cleanup()
 
     def test_context_manager(self):
-        """Test DataScientist as context manager."""
-        with DataScientist(agent_type="adk") as ds:
+        """Test AIEngineer as context manager."""
+        with AIEngineer(agent_type="adk") as ds:
             assert ds.working_dir.exists()
 
         # Cleanup should have been called
@@ -142,8 +142,8 @@ class TestDataScientist:
 
     @pytest.mark.asyncio
     async def test_async_context_manager(self):
-        """Test DataScientist as async context manager."""
-        async with DataScientist(agent_type="adk") as ds:
+        """Test AIEngineer as async context manager."""
+        async with AIEngineer(agent_type="adk") as ds:
             assert ds.working_dir.exists()
 
         # Cleanup should have been called

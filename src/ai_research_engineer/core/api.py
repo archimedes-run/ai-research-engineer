@@ -1,7 +1,7 @@
 """
 Core API for Agentic Data Scientist - Simplified stateless interface.
 
-This module provides the main DataScientist class for running agents
+This module provides the main AIEngineer class for running agents
 with optional conversation context and file handling.
 """
 
@@ -46,6 +46,7 @@ class SessionConfig:
     session_id: Optional[str] = None
     working_dir: Optional[str] = None
     auto_cleanup: bool = True
+    template: str = "NeurReps_2024_Template"
 
 
 @dataclass
@@ -70,7 +71,7 @@ class Result:
     events_count: int = 0
 
 
-class DataScientist:
+class AIEngineer:
     """
     Simplified stateless API for Agentic Data Scientist agents.
 
@@ -97,6 +98,7 @@ class DataScientist:
         mcp_servers: Optional[List[str]] = None,
         working_dir: Optional[str] = None,
         auto_cleanup: Optional[bool] = None,
+        template: str = "NeurReps_2024_Template"
     ):
         """Initialize Agentic Data Scientist core with configuration."""
         # Generate session ID
@@ -124,6 +126,7 @@ class DataScientist:
             mcp_servers=mcp_servers,
             working_dir=str(self.working_dir),
             auto_cleanup=self.auto_cleanup,
+            template=template
         )
 
         # ADK components
@@ -148,6 +151,7 @@ class DataScientist:
             app = create_app(
                 working_dir=str(self.working_dir),
                 mcp_servers=self.config.mcp_servers,
+                template=self.config.template
             )
 
             # Store both app and agent references

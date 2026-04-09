@@ -12,7 +12,7 @@ from typing import Optional
 
 import click
 
-from ai_research_engineer import DataScientist
+from ai_research_engineer import AIEngineer
 
 
 # Suppress third-party library console output early, before importing our modules
@@ -76,6 +76,12 @@ logger = logging.getLogger(__name__)
     type=click.Path(),
     help='Path to log file (default: .agentic_ds.log in working directory)',
 )
+@click.option(
+    '--template',
+    type=click.Choice(['Arxiv___PRIME_AI_Style_Template', 'NeurReps_2024_Template']),
+    default='NeurReps_2024_Template',
+    help='LaTeX template to use for the final manuscript',
+)
 def main(
     query: Optional[str],
     files: tuple,
@@ -85,6 +91,7 @@ def main(
     keep_files: bool,
     verbose: bool,
     log_file: Optional[str],
+    template: str,
 ):
     """
     Run Agentic Data Scientist with a query.
@@ -191,10 +198,11 @@ def main(
 
     # Create core instance
     try:
-        core = DataScientist(
+        core = AIEngineer(
             agent_type=agent_type,
             working_dir=working_dir_to_use,
             auto_cleanup=auto_cleanup,
+            template=template
         )
 
         # Configure logging to file

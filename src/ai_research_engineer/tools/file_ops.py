@@ -174,6 +174,42 @@ def read_file(
         return f"Error reading file: {e}"
 
 
+def write_file(path: str, content: str, working_dir: str) -> str:
+    """
+    Write content to a file. Strictly limited to markdown, json, txt, tex, and bib files.
+    Cannot overwrite Python scripts to protect the coding agent's workspace.
+    
+    Parameters
+    ----------
+    path : str
+        Path to save the file (e.g., 'knowledge_base/01_literature_review.md')
+    content : str
+        The text content to write
+    working_dir : str
+        Working directory root for security validation
+    """
+    logger.info(f"[Tool:write_file] Attempting to write to '{path}'")
+    try:
+        file_path = _validate_path(path, working_dir)
+        
+        # SECURITY: Prevent ADK agents from modifying executable code
+        allowed_extensions = ['.md', '.txt', '.json', '.tex', '.bib']
+        if file_path.suffix.lower() not in allowed_extensions and file_path.suffix != '':
+            return f"Error: Security constraint violation. Planning agents can only write {allowed_extensions} files. Blocked attempt to write {file_path.suffix}."
+            
+        # Ensure parent directories exist
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Write the file
+        file_path.write_text(content, encoding="utf-8")
+        return f"Success: Wrote {len(content)} characters to {path}"
+        
+    except ValueError as e:
+        return f"Error: {e}"
+    except Exception as e:
+        return f"Error writing file: {e}"
+
+
 def read_media_file(path: str, working_dir: str) -> str:
     """
     Read a binary/media file (images, audio, etc.) and return base64 encoded data.

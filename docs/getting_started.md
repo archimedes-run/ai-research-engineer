@@ -115,7 +115,7 @@ tail -f agentic_output/.agentic_ds.log
 
 Now that you have the basics set up:
 
-1. **Read the [API Reference](01-api-reference.md)** to understand the `DataScientist` class and event system
+1. **Read the [API Reference](01-api-reference.md)** to understand the `AIEngineer` class and event system
 2. **Explore the [Workflow Guide](05-workflow-guide.md)** for details on each phase of the research pipeline
 3. **Check the [CLI Reference](03-cli-reference.md)** for all available command-line options
 4. **Review [Troubleshooting & Examples](06-troubleshooting-and-examples.md)** for common scenarios and debugging tips

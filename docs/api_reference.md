@@ -4,14 +4,14 @@ Complete API reference for the AI Research Engineer.
 
 ## Core API
 
-### `DataScientist` (Core Engine)
+### `AIEngineer` (Core Engine)
 
 Main class for interacting with the AI Research Engineer multi-agent workflow.
 
 ```python
-from ai_research_engineer import DataScientist
+from ai_research_engineer import AIEngineer
 
-ds = DataScientist(
+ds = AIEngineer(
     agent_type="adk",           # "adk" (recommended) or "claude_code" (direct mode)
     mcp_servers=None,           # Optional: list of MCP servers
 )
