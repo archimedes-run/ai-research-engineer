@@ -80,7 +80,7 @@ class TestSetupWorkingDirectory:
             setup_working_directory(str(working_dir))
 
             readme_content = (working_dir / "README.md").read_text()
-            assert "Agentic Data Scientist Session" in readme_content
+            assert "AI Research Engineer Session" in readme_content
             assert "user_data/" in readme_content
             assert "workflow/" in readme_content
             assert "results/" in readme_content
