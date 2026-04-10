@@ -109,17 +109,78 @@ def setup_working_directory(working_dir: str) -> None:
 
     # 1. NEW: Initialize git repository AND make an initial commit (REQUIRED BY CLAUDE CODE)
     import subprocess
+    import os
+    import urllib.request
+    import json
+    
+    github_pat = os.getenv("GITHUB_PAT")
+    
+    # --- IMPORTANT: Change this to 'ris3abh' or 'archimedes-run' depending on where the PAT was generated ---
+    github_username = "archimedes-run" 
+    
+    repo_name = working_path.name
+
     if not (working_path / ".git").exists():
         try:
             # Init repo
             subprocess.run(["git", "init"], cwd=working_dir, check=True, capture_output=True)
-            # Create a minimal .gitignore so we can make an initial commit
+            
+            # CRITICAL FIX: Configure Git identity locally for this repository
+            subprocess.run(["git", "config", "user.name", "AI Research Agent"], cwd=working_dir, check=True, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "ai-research-engineer@archimedes.run"], cwd=working_dir, check=True, capture_output=True)
+            
+            # Create a minimal .gitignore
             gitignore_path = working_path / ".gitignore"
-            gitignore_path.write_text(".claude/\n__pycache__/\n*.pyc\n")
+            gitignore_path.write_text(".claude/\n__pycache__/\n*.pyc\n.env\n")
+            
             # Add and commit
             subprocess.run(["git", "add", ".gitignore"], cwd=working_dir, check=True, capture_output=True)
-            subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=working_dir, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-m", "Initial commit from Orchestrator"], cwd=working_dir, check=True, capture_output=True)
             logger.info(f"[Claude Code] Initialized git repository with baseline commit in {working_dir}")
+
+            # Create Remote and Push
+            if github_pat:
+                logger.info(f"[Claude Code] Attempting to create GitHub repo: {repo_name}...")
+                
+                # --- NEW: Define your Organization ---
+                github_username = "ris3abh"     # Your personal login
+                github_org = "archimedes-run" 
+                
+                # --- NEW: Notice the endpoint changed from /user/repos to /orgs/{github_org}/repos ---
+                req = urllib.request.Request(
+                    f"https://api.github.com/orgs/{github_org}/repos",
+                    data=json.dumps({
+                        "name": repo_name,
+                        "private": True,
+                        "description": "Autonomous AI Research Replication created by AI Research Engineer"
+                    }).encode("utf-8"),
+                    headers={
+                        "Authorization": f"Bearer {github_pat}",
+                        "Accept": "application/vnd.github.v3+json",
+                        "Content-Type": "application/json"
+                    },
+                    method="POST"
+                )
+                
+                try:
+                    urllib.request.urlopen(req)
+                    logger.info(f"[Claude Code] Successfully created remote repo: {github_org}/{repo_name}")
+                except urllib.error.HTTPError as e:
+                    # 422 usually means the repo already exists, which is fine!
+                    logger.info(f"[Claude Code] Repo creation returned HTTP {e.code} (It likely already exists).")
+
+                # --- NEW: Link and Push to the Organization's URL ---
+                # We can just use the PAT directly for auth without needing the username here
+                remote_url = f"https://{github_username}:{github_pat}@github.com/{github_org}/{repo_name}.git"
+                
+                subprocess.run(["git", "remote", "add", "origin", remote_url], cwd=working_dir, check=True, capture_output=True)
+                subprocess.run(["git", "branch", "-M", "main"], cwd=working_dir, check=True, capture_output=True)
+                subprocess.run(["git", "push", "-u", "origin", "main"], cwd=working_dir, check=True, capture_output=True)
+                
+                logger.info(f"[Claude Code] Successfully pushed initial skeleton to GitHub Organization!")
+            else:
+                logger.warning("[Claude Code] GITHUB_PAT not found. Skipping remote push.")
+
         except Exception as e:
             logger.warning(f"[Claude Code] Failed to initialize git with commit: {e}")
 
@@ -351,16 +412,16 @@ class ClaudeCodeAgent(Agent):
 
                 prompt = f"""Create and execute a comprehensive implementation plan.
 
-User Request: {task_prompt}
+                    User Request: {task_prompt}
 
-Working directory: {working_dir}
+                    Working directory: {working_dir}
 
-Requirements:
-1. Analyze the request and create a structured plan
-2. Execute the plan step by step
-3. Save all outputs with descriptive filenames
-4. Generate comprehensive documentation
-5. Create final execution summary when done"""
+                    Requirements:
+                    1. Analyze the request and create a structured plan
+                    2. Execute the plan step by step
+                    3. Save all outputs with descriptive filenames
+                    4. Generate comprehensive documentation
+                    5. Create final execution summary when done"""
 
             # Generate system instructions
             system_instructions = get_claude_instructions(state=state, working_dir=working_dir)
