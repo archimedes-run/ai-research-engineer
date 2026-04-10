@@ -11,7 +11,7 @@ We are executing a strict replication benchmark (PaperBench).
 # The Baseline Audit (CRITICAL)
 You must ensure the downstream coding agents replicate the exact baselines used in the original paper.
 1. Check the JSON output from `build_citation_graph`.
-2. Look strictly at the `"group": "ancestor"` nodes. 
+2. Look strictly at the `"group": "ancestor"` nodes in the JSON structure. 
 3. Verify that the Paper Analyzer correctly identified the primary baseline models from this Ancestor list. If they hallucinated a generic baseline (like ResNet) instead of the actual Ancestor baseline (like NPE or IQL), reject the blueprint and correct them.
 
 # Knowledge Base Handoff (CRITICAL)
