@@ -53,52 +53,108 @@ def omni_search_papers(query: str, limit: int = 10) -> str:
 
 def build_citation_graph(paper_id: str, working_dir: str) -> str:
     """
-    Builds a markdown tree of a paper's citations and references.
-    CRITICAL for agents to understand the baseline models they need to compare against.
+    Builds a structured JSON citation graph including cross-connections
+    between the target paper's references and citations (like Consensus).
     """
+    import re
+    import json
+    from pathlib import Path
+    
     logger.info(f"[Tool:build_citation_graph] Mapping ecosystem for {paper_id}")
     try:
-        # Fetch the main paper with references and citations
+        # 1. Auto-fix bare arXiv IDs for Semantic Scholar
+        if re.match(r'^\d{4}\.\d{4,5}(v\d+)?$', paper_id):
+            paper_id = f"ARXIV:{paper_id.split('v')[0]}" 
+
+        # 2. Fetch the target paper
         p = sch.get_paper(
             paper_id, 
-            fields=['title', 'year', 'references.title', 'references.paperId', 'citations.title', 'citations.paperId']
+            fields=['title', 'year', 'references.title', 'references.paperId', 'references.year', 
+                    'citations.title', 'citations.paperId', 'citations.year']
         )
         
-        graph_md = [f"# Citation Graph: {p.title} ({p.year})\n"]
+        target_id = p.paperId
+        safe_title = getattr(p, 'title', 'Unknown Title') or 'Unknown Title'
+        target_year = getattr(p, 'year', 2024) or 2024
         
-        # 1. Map the Ancestors (References - usually the Baselines!)
-        graph_md.append("## Ancestors (Prior Work & Baselines)")
-        references = getattr(p, 'references', [])
-        if references:
-            for ref in references[:10]: # Limit to top 10 to save tokens
-                title = getattr(ref, 'title', 'Unknown Title')
-                pid = getattr(ref, 'paperId', 'Unknown ID')
-                graph_md.append(f"- [REF] {title} (ID: {pid})")
-        else:
-            graph_md.append("- No references found.")
-            
-        # 2. Map the Descendants (Citations - usually Ablations or Improvements)
-        graph_md.append("\n## Descendants (Subsequent Work)")
-        citations = getattr(p, 'citations', [])
-        if citations:
-            for cite in citations[:10]:
-                title = getattr(cite, 'title', 'Unknown Title')
-                pid = getattr(cite, 'paperId', 'Unknown ID')
-                graph_md.append(f"- [CITE] {title} (ID: {pid})")
-        else:
-            graph_md.append("- No citations found.")
-            
-        final_graph = "\n".join(graph_md)
+        nodes = {}
+        edges = []
         
-        # Automatically save this to the Research Vault
+        # Add target node
+        nodes[target_id] = {
+            "id": target_id,
+            "label": safe_title,
+            "year": target_year,
+            "group": "target"
+        }
+        
+        # 3. Extract References (Ancestors)
+        refs = getattr(p, 'references', [])
+        ref_ids = []
+        if refs:
+            for ref in refs[:30]:  # Top 30 references
+                pid = getattr(ref, 'paperId', None)
+                if not pid: continue
+                title = getattr(ref, 'title', 'Unknown Title') or 'Unknown Title'
+                year = getattr(ref, 'year', None)
+                
+                nodes[pid] = {"id": pid, "label": title, "year": year, "group": "ancestor"}
+                edges.append({"source": pid, "target": target_id}) # Ref -> Target
+                ref_ids.append(pid)
+                
+        # 4. Extract Citations (Descendants)
+        cites = getattr(p, 'citations', [])
+        cite_ids = []
+        if cites:
+            for cite in cites[:20]:  # Top 20 citations
+                pid = getattr(cite, 'paperId', None)
+                if not pid: continue
+                title = getattr(cite, 'title', 'Unknown Title') or 'Unknown Title'
+                year = getattr(cite, 'year', None)
+                
+                nodes[pid] = {"id": pid, "label": title, "year": year, "group": "descendant"}
+                edges.append({"source": target_id, "target": pid}) # Target -> Cite
+                cite_ids.append(pid)
+                
+        # 5. FIND CROSS-CONNECTIONS! (The Consensus Magic)
+        # We do ONE batch call to see if any of our 50 neighbors cite each other
+        all_neighbor_ids = ref_ids + cite_ids
+        if all_neighbor_ids:
+            try:
+                neighbors_data = sch.get_papers(all_neighbor_ids, fields=['citations.paperId'])
+                for neighbor in neighbors_data:
+                    if not neighbor: continue
+                    n_id = neighbor.paperId
+                    n_cites = getattr(neighbor, 'citations', [])
+                    if n_cites:
+                        for c in n_cites:
+                            c_id = getattr(c, 'paperId', None)
+                            # If this neighbor cites another paper in our graph, draw an edge!
+                            if c_id and c_id in nodes and c_id != target_id:
+                                edges.append({"source": n_id, "target": c_id})
+            except Exception as batch_e:
+                logger.warning(f"[Tool:build_citation_graph] Could not fetch cross-connections: {batch_e}")
+
+        # 6. Format Final JSON
+        graph_data = {
+            "nodes": list(nodes.values()),
+            "edges": edges
+        }
+        
+        json_str = json.dumps(graph_data, indent=2)
+        
+        # Save to disk
         if working_dir:
-            graph_path = Path(working_dir) / "knowledge_base" / f"citation_graph_{paper_id[:8]}.md"
-            # Ensure directory exists before writing
+            safe_id = paper_id.replace(':', '_').replace('/', '_')
+            graph_path = Path(working_dir) / "knowledge_base" / f"citation_graph_{safe_id[:15]}.json"
             graph_path.parent.mkdir(parents=True, exist_ok=True)
-            graph_path.write_text(final_graph, encoding='utf-8')
-            return f"Citation graph built and saved to {graph_path.name}:\n\n{final_graph}"
+            graph_path.write_text(json_str, encoding='utf-8')
             
-        return final_graph
+            # We return the JSON string directly to the LLM. It's incredibly token-dense and easy to read.
+            return f"Citation graph built with cross-connections and saved to {graph_path.name}:\n\n{json_str}"
+            
+        return json_str
+        
     except Exception as e:
         return f"Error building citation graph: {e}"
 

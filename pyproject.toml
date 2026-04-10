@@ -36,6 +36,7 @@ dependencies = [
     "duckdb>=1.5.1",
     "tabulate>=0.10.0",
     "findpapers>=0.6.7",
+    "anthropic>=0.93.0",
 ]
 
 [project.urls]

@@ -107,6 +107,22 @@ def setup_working_directory(working_dir: str) -> None:
     working_path = Path(working_dir)
     working_path.mkdir(parents=True, exist_ok=True)
 
+    # 1. NEW: Initialize git repository AND make an initial commit (REQUIRED BY CLAUDE CODE)
+    import subprocess
+    if not (working_path / ".git").exists():
+        try:
+            # Init repo
+            subprocess.run(["git", "init"], cwd=working_dir, check=True, capture_output=True)
+            # Create a minimal .gitignore so we can make an initial commit
+            gitignore_path = working_path / ".gitignore"
+            gitignore_path.write_text(".claude/\n__pycache__/\n*.pyc\n")
+            # Add and commit
+            subprocess.run(["git", "add", ".gitignore"], cwd=working_dir, check=True, capture_output=True)
+            subprocess.run(["git", "commit", "-m", "Initial commit"], cwd=working_dir, check=True, capture_output=True)
+            logger.info(f"[Claude Code] Initialized git repository with baseline commit in {working_dir}")
+        except Exception as e:
+            logger.warning(f"[Claude Code] Failed to initialize git with commit: {e}")
+
     # We added 'knowledge_base' and 'literature' to the standard subdirectories
     subdirs = ["user_data", "workflow", "results", "literature", "knowledge_base"]
 

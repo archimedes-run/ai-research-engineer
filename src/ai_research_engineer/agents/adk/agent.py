@@ -2,7 +2,7 @@
 Main ADK agent factory for AI Research Engineer.
 
 This module creates the multi-agent system with ideation, planning, orchestration,
-implementation, verification, and peer-reviewed paper writing agents.
+implementation, and verification agents.
 """
 
 import shutil
@@ -588,6 +588,7 @@ def create_agent(
         query_duckdb_bound,
         get_schema_bound,
         
+        
         # Semantic Scholar Tools
         semantic_search_papers_bound,
         get_paper_details_bound,
@@ -632,6 +633,28 @@ def create_agent(
         description="Iterative implementation-review-confirmation loop for each stage.",
         sub_agents=[coding_agent, review_agent, review_confirmation],
         max_iterations=5,
+    )
+
+    # ------------------------- Summary Agent -------------------------
+
+    logger.info("[AIResearcher] Loading summary_agent prompt")
+    summary_agent_instructions = load_prompt("summary")
+
+    logger.info(f"[AIResearcher] Creating summary_agent with model={DEFAULT_MODEL}")
+
+    summary_agent = LoopDetectionAgent(
+        name="summary_agent",
+        model=DEFAULT_MODEL,
+        description="Summarizes results into a comprehensive pure text report.",
+        instruction=summary_agent_instructions,
+        tools=tools,  # Needs tools to read files
+        planner=BuiltInPlanner(
+            thinking_config=types.ThinkingConfig(
+                include_thoughts=True,
+                thinking_budget=-1,
+            ),
+        ),
+        generate_content_config=get_generate_content_config(temperature=0.3),
     )
 
     # ------------------------- Dynamic Ideation/Replication Loop (NEW) -------------------------
@@ -845,56 +868,6 @@ def create_agent(
         description="Orchestrates stage-by-stage implementation with adaptive planning.",
     )
 
-    # ------------------------- Paper Writing Loop (NEW) -------------------------
-    # Replaces the standalone unchecked Summary Agent
-
-    logger.info("[AIResearcher] Loading summary_agent (Writer) prompt")
-    summary_agent_instructions = load_prompt("summary")
-
-    logger.info(f"[AIResearcher] Creating summary_agent with model={DEFAULT_MODEL}")
-
-    summary_agent = LoopDetectionAgent(
-        name="summary_agent",
-        model=DEFAULT_MODEL,
-        description="Synthesizes results into a pure LaTeX manuscript.",
-        instruction=summary_agent_instructions,
-        tools=tools,  # Needs tools to read and write files
-        planner=BuiltInPlanner(
-            thinking_config=types.ThinkingConfig(
-                include_thoughts=True,
-                thinking_budget=-1,
-            ),
-        ),
-        generate_content_config=get_generate_content_config(temperature=0.2), # Lowered temp for less hallucination
-    )
-
-    logger.info("[AIResearcher] Loading paper_reviewer (Auditor) prompt")
-    paper_reviewer_instructions = load_prompt("paper_reviewer")
-
-    paper_reviewer_agent = LoopDetectionAgent(
-        name="paper_reviewer_agent",
-        model=REVIEW_MODEL,
-        description="Audits the drafted manuscript for hallucinated metrics or methodology deviations.",
-        instruction=paper_reviewer_instructions,
-        tools=tools,
-        output_key="paper_review_feedback",
-        planner=BuiltInPlanner(
-            thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=-1),
-        ),
-        generate_content_config=get_generate_content_config(temperature=0.0),
-    )
-
-    paper_writing_loop = NonEscalatingLoopAgent(
-        name="paper_writing_loop",
-        description="Iteratively drafts and rigorously peer-reviews the final academic manuscript.",
-        sub_agents=[
-            summary_agent,
-            paper_reviewer_agent,
-            create_review_confirmation_agent(auto_exit_on_completion=True, prompt_name="paper_review_confirmation"),
-        ],
-        max_iterations=3, # Give it 3 tries to get the math right
-    )
-
     # ------------------------- Root Workflow -------------------------
 
     logger.info("[AIResearcher] Creating root workflow")
@@ -907,7 +880,7 @@ def create_agent(
             high_level_planning_loop,   # THEN plans out the execution
             high_level_plan_parser,
             stage_orchestrator,
-            paper_writing_loop,         # REPLACED summary_agent WITH THE NEW LOOP
+            summary_agent,
         ],
     )
 
