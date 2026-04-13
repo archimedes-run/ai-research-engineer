@@ -216,7 +216,7 @@ def create_agent(working_dir: str):
         
         # Existing ArXiv & Academic Tools
         search_papers_bound,
-        semantic_search_papers_bound,
+        semantic_search_papers,
         
         # YOUR CUSTOM TOOLS
         partial(trigger_slurm_job, cluster_name="gpu_cluster_1"),
