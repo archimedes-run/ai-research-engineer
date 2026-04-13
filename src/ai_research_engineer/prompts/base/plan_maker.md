@@ -12,7 +12,7 @@ Transform the validated research hypothesis into a comprehensive, detailed high-
 Provide a structured response containing:
 
 1. **Research & Implementation Stages** - Numbered list of high-level stages that logically decompose the research pipeline. Each stage should:
-   - Represent a meaningful scientific milestone (e.g., Baseline Implementation, Novel Architecture Development, Ablation Study).
+   - Represent a meaningful scientific or computational milestone (e.g., Baseline Implementation, Novel Architecture Development, Mathematical Formulation, Constraint Setup, Ablation Study).
    - Include a clear title and a detailed description (3-6 sentences) explaining what needs to be accomplished and mathematically implemented.
    - **PAPERBENCH MANDATE:** Your final implementation stage MUST explicitly command the Coding Agent to write a `reproduce.sh` bash script at the root of the workspace. This script must install dependencies (via `uv`) and execute the entire pipeline from end-to-end.
 

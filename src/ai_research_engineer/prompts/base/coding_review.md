@@ -39,8 +39,8 @@ Remain terse and evidence-driven.
 - [ ] No unauthorized architectural deviations (e.g., swapping a Transformer for an LSTM without permission).
 
 ## ✓ ML Code Quality Standards & PaperBench Rules
-- [ ] PyTorch/JAX modules are properly structured.
-- [ ] Tensor dimensions and operations are logically sound.
+- [ ] Domain-Appropriate Structures: PyTorch/JAX modules are properly structured OR algorithmic functions (heuristics, objective functions, solvers) are properly implemented.
+- [ ] Mathematical Soundness: Tensor dimensions, matrix operations, and mathematical constraints/bounds are logically sound.
 - [ ] Random seeds are set for reproducibility.
 - [ ] Model weights and training logs are successfully saved to `results/`.
 - [ ] **CRITICAL:** If this is the final coding stage, is there a `reproduce.sh` at the root that runs the entire pipeline? (Reject if missing).
