@@ -50,6 +50,12 @@ Remain terse and evidence-driven.
 - [ ] Comparisons/baselines are executed fairly.
 - [ ] Output artifacts match the stage's required deliverables.
 
+## ✓ Statistical Sanity Check & Empirical Reality
+- [ ] **Random Chance Check**: Did the accuracy significantly beat random chance? (e.g., "Why is accuracy 0.17\% on a 1000-class problem? This is random chance. Rejecting this code.")
+- [ ] **Convergence Check**: Did the loss curve actually converge, or did it flatline immediately? check for overfitting or underfitting, ask similar questions depending on the task.
+- [ ] **Resource Check**: Is the memory footprint or FLOP count actually lower/better than the baseline, as requested?
+- [ ] **Reject on Hallucination**: If the metrics look suspiciously perfect or represent a physical impossibility, reject the stage and demand the raw logs.
+
 # ANTI-QUITTING PROTOCOL
 If the coding agent's summary indicates that it finished early, gave up, or claimed a problem was unsolvable without actually completing the stage's core requirements, **you MUST reject the implementation**. Tell the coding agent to keep working, debug the issue, and not to stop until the criteria are empirically met.
 

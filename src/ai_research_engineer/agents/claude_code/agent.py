@@ -131,7 +131,16 @@ def setup_working_directory(working_dir: str) -> None:
             
             # Create a minimal .gitignore
             gitignore_path = working_path / ".gitignore"
-            gitignore_path.write_text(".claude/\n__pycache__/\n*.pyc\n.env\n")
+            gitignore_path.write_text(
+                ".claude/\n"
+                "__pycache__/\n"
+                "*.pyc\n"
+                ".env\n"
+                "*.pt\n"
+                "*.pth\n"
+                "*.safetensors\n"
+                "data/\n"
+            )
             
             # Add and commit
             subprocess.run(["git", "add", ".gitignore"], cwd=working_dir, check=True, capture_output=True)
@@ -428,6 +437,10 @@ class ClaudeCodeAgent(Agent):
 
             env = os.environ.copy()
             env["ANTHROPIC_MODEL"] = self.model
+            
+            # Phase 3: Global Environment Lock & HF Integration
+            env["UV_PROJECT_ENVIRONMENT"] = "/home/ec2-user/ai-research-engineer/.venv"
+            env["HF_TOKEN"] = os.getenv("HF_TOKEN", "")
 
             # Create options for Claude Agent SDK
             # Skills are loaded from .claude/skills/ via setting_sources
