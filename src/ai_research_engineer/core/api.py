@@ -49,6 +49,7 @@ class SessionConfig:
     auto_cleanup: bool = True
     template: str = "NeurReps_2024_Template"
     research_mode: str = "novelty"  # Added research_mode to config
+    domain: str = "ai_ml"  # Added domain to config
 
 
 @dataclass
@@ -105,7 +106,8 @@ class AIEngineer:
         working_dir: Optional[str] = None,
         auto_cleanup: Optional[bool] = None,
         template: str = "NeurReps_2024_Template",
-        research_mode: str = "novelty"
+        research_mode: str = "novelty",
+        domain: str = "ai_ml"
     ):
         """Initialize Agentic Data Scientist core with configuration."""
         # Generate session ID
@@ -134,7 +136,8 @@ class AIEngineer:
             working_dir=str(self.working_dir),
             auto_cleanup=self.auto_cleanup,
             template=template,
-            research_mode=research_mode
+            research_mode=research_mode,
+            domain=domain
         )
 
         # ADK components
@@ -147,12 +150,14 @@ class AIEngineer:
         logger.info(f"Working directory: {self.working_dir}")
         logger.info(f"Auto-cleanup enabled: {self.auto_cleanup}")
         logger.info(f"Research Mode: {self.config.research_mode}")
+        logger.info(f"Domain: {self.config.domain}")
 
     async def _setup_agent(self):
         """Set up the agent and session service."""
         if self.agent is not None:
             return  # Already set up
 
+        # Route BOTH adk and evolve to the ADK App creator
         if self.config.agent_type in ["adk", "evolve"]:
             from ai_research_engineer.agents.adk import create_app
 
@@ -162,9 +167,10 @@ class AIEngineer:
                 working_dir=str(self.working_dir),
                 mcp_servers=self.config.mcp_servers,
                 template=self.config.template,
-                research_mode="evolve" if self.config.agent_type == "evolve" else self.config.research_mode
+                research_mode="evolve" if self.config.agent_type == "evolve" else self.config.research_mode,
+                domain=self.config.domain   
             )
-
+            
             # Store both app and agent references
             self.app = app
             self.agent = app.root_agent  # For compatibility

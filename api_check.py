@@ -56,3 +56,6 @@ if __name__ == "__main__":
     is_valid, message = validate_api_key()
     print(message)
     sys.exit(0 if is_valid else 1)
+
+
+

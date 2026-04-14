@@ -15,7 +15,7 @@ Cross-reference the manuscript against the raw data:
 
 # Output Format
 Provide a ruthless, evidence-based critique. 
-1. **Pass/Fail Assessment**: Is the paper factually 100% accurate?
+1. **Pass/Fail Assessment**: Is the paper factually 100\% accurate?
 2. **Mandatory Corrections**: List the exact line numbers or sections in the `.tex` file that contain hallucinations or false claims, and provide the *actual* data they must use to fix it.
 
 If the paper is perfectly accurate, simply output: "APPROVED: The manuscript is factually accurate and ready for compilation."

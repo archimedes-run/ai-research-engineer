@@ -51,14 +51,20 @@ logger = logging.getLogger(__name__)
 @click.option(
     '--mode',
     required=True,
-    type=click.Choice(['orchestrated', 'simple']),
-    help='REQUIRED: Execution mode - "orchestrated" (full multi-agent with planning) or "simple" (direct coding)',
+    type=click.Choice(['orchestrated', 'simple', 'evolve']),
+    help='REQUIRED: Execution mode - "orchestrated", "simple", or "evolve" (autonomous optimization loop)',
 )
 @click.option(
     '--research-mode',
     type=click.Choice(['novelty', 'replication']),
     default='novelty',
     help='Toggle between inventing new architectures (novelty) or strict paper replication (replication).',
+)
+@click.option(
+    '--domain',
+    type=click.Choice(['ai_ml', 'finance', 'biomed', 'algorithms']),
+    default='ai_ml',
+    help='Research domain context to inject into the agents (default: ai_ml).',
 )
 @click.option(
     '--working-dir',
@@ -93,6 +99,7 @@ def main(
     files: tuple,
     mode: str,
     research_mode: str,
+    domain: str,
     working_dir: Optional[str],
     temp_dir: bool,
     keep_files: bool,
@@ -187,7 +194,12 @@ def main(
             file_list.append((path.name, path))
 
     # Map mode to agent_type
-    agent_type = "adk" if mode == "orchestrated" else "claude_code"
+    if mode == "orchestrated":
+        agent_type = "adk"
+    elif mode == "simple":
+        agent_type = "claude_code"
+    elif mode == "evolve":
+        agent_type = "evolve"
 
     # Determine working directory and cleanup behavior
     if temp_dir:
@@ -210,7 +222,8 @@ def main(
             working_dir=working_dir_to_use,
             auto_cleanup=auto_cleanup,
             template=template,
-            research_mode=research_mode
+            research_mode=research_mode,
+            domain=domain
         )
 
         # Configure logging to file
@@ -278,6 +291,7 @@ def main(
 
         click.echo(f"Logs: {log_path}")
         click.echo(f"Research Mode: {research_mode.capitalize()}")
+        click.echo(f"Domain: {domain.capitalize()}")
         click.echo("")
 
     except Exception as e:
