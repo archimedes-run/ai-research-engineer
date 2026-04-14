@@ -665,6 +665,12 @@ def create_agent(
         scorer_instructions = load_prompt("replication_verifier")
         generator_desc = "Analyzes a paper and strictly extracts its methodology for exact replication."
         scorer_desc = "Verifies the extracted methodology against the original paper to ensure no hallucinated architectures or novelty."
+    elif research_mode == "evolve":
+        logger.info("[Mode] Initializing Evolve Mode (End-to-End Autonomous Optimization)")
+        generator_instructions = load_prompt("idea_generator")
+        scorer_instructions = load_prompt("novelty_scorer")
+        generator_desc = "Generates novel algorithmic architectures and hypotheses for evolution."
+        scorer_desc = "Evaluates ideas for novelty, feasibility, and impact using literature tools."
     else:
         logger.info("[Mode] Initializing Novelty Mode (SaaS)")
         generator_instructions = load_prompt("idea_generator")
@@ -870,18 +876,53 @@ def create_agent(
 
     # ------------------------- Root Workflow -------------------------
 
+    evolution_loop = None
+    if research_mode == "evolve":
+        logger.info("[AIResearcher] Initializing ASI-Evolve Database and EvolutionLoopAgent")
+        from ai_research_engineer.evolve.database.database import Database
+        from ai_research_engineer.evolve.utils.best_snapshot import BestSnapshotManager
+        from ai_research_engineer.agents.adk.evolution_loop import EvolutionLoopAgent
+        
+        db_dir = working_dir / "evolve_db"
+        db_dir.mkdir(parents=True, exist_ok=True)
+        steps_dir = working_dir / "workflow" / "steps"
+        
+        database = Database(
+            storage_dir=db_dir,
+            sampling_algorithm="ucb1",
+            max_size=50
+        )
+        best_snapshot = BestSnapshotManager(steps_dir=steps_dir, logger=logger)
+        
+        evolution_loop = EvolutionLoopAgent(
+            coding_agent=coding_agent,
+            analyzer_agent=stage_reflector,  # Repurposing the PI reflector to analyze mutations
+            database=database,
+            best_snapshot=best_snapshot,
+            max_generations=15  # Default generation limit
+        )
+
+    # ------------------------- Root Workflow -------------------------
+
     logger.info("[AIResearcher] Creating root workflow")
+
+    # Build the sequential queue based on the mode
+    workflow_agents = [
+        ideation_loop,              # Brainstorms OR extracts specs based on mode
+        high_level_planning_loop,   # THEN plans out the execution
+        high_level_plan_parser,
+        stage_orchestrator,         # Builds the seed baseline and eval.sh
+    ]
+    
+    if research_mode == "evolve":
+        workflow_agents.append(evolution_loop)  # The mutation loop takes over
+        
+    workflow_agents.append(summary_agent)  # Finally, write the paper
 
     workflow = SequentialAgent(
         name="ai_research_engineer_workflow",
         description="Complete AI Research Engineer workflow with adaptive stage-wise implementation.",
-        sub_agents=[
-            ideation_loop,              # Brainstorms OR extracts specs based on mode
-            high_level_planning_loop,   # THEN plans out the execution
-            high_level_plan_parser,
-            stage_orchestrator,
-            summary_agent,
-        ],
+        sub_agents=workflow_agents,
     )
 
     logger.info("[AIResearcher] Agent creation complete")

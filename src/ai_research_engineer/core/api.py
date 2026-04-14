@@ -41,7 +41,7 @@ logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLeve
 class SessionConfig:
     """Configuration for an Agentic Data Scientist session."""
 
-    agent_type: str = "adk"  # "adk" or "claude_code"
+    agent_type: str = "adk"  # "adk" or "claude_code" or "evolve"
     mcp_servers: Optional[List[str]] = None
     max_llm_calls: int = 1024
     session_id: Optional[str] = None
@@ -153,16 +153,16 @@ class AIEngineer:
         if self.agent is not None:
             return  # Already set up
 
-        if self.config.agent_type == "adk":
+        if self.config.agent_type in ["adk", "evolve"]:
             from ai_research_engineer.agents.adk import create_app
 
             # Create App instead of bare agent
-            # Pass research_mode into create_app
+            # Force research_mode to "evolve" if the agent_type is evolve
             app = create_app(
                 working_dir=str(self.working_dir),
                 mcp_servers=self.config.mcp_servers,
                 template=self.config.template,
-                research_mode=self.config.research_mode
+                research_mode="evolve" if self.config.agent_type == "evolve" else self.config.research_mode
             )
 
             # Store both app and agent references
