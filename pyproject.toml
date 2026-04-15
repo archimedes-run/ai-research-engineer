@@ -38,6 +38,7 @@ dependencies = [
     "findpapers>=0.6.7",
     "anthropic>=0.93.0",
     "faiss-cpu>=1.13.2",
+    "sentence-transformers>=5.4.1",
 ]
 
 [project.urls]
