@@ -45,8 +45,7 @@ tmp/
 model/
 
 
-# Data files
+# Data and outputs
 data/
 agentic_output/
-Investigate Kolmogorov-Arnold Networks (KANs) for multivariate time-series forecasting on weather data/
-test_fre_run/
+experiments/

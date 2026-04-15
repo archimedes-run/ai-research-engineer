@@ -472,7 +472,7 @@ def create_agent(
         query_duckdb,
         get_schema,
         # Semantic Scholar Tools
-        semantic_search_papers,
+        semantic_search_papers as _semantic_search_papers,
         get_paper_details,
         get_paper_citations,
         get_paper_references,
@@ -538,8 +538,9 @@ def create_agent(
         return get_schema(filepath, working_dir_str)
 
     # --- Academic Research Tool Bindings ---
-    def semantic_search_papers(query: str, year: Optional[str] = None, min_citations: int = 0, limit: int = 10) -> str:
-        return semantic_search_papers(query, year, min_citations, limit, working_dir_str)
+    def semantic_search_papers(query: str, year: Optional[str] = None, min_citations: Optional[int] = None, limit: int = 5):
+        """Semantic search for papers on arXiv."""
+        return _semantic_search_papers(query, year, min_citations, limit, working_dir_str)
 
     def get_paper_details_bound(paper_id: str) -> str:
         return get_paper_details(paper_id, working_dir_str)

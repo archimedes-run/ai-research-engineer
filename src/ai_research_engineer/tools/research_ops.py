@@ -5,14 +5,14 @@ and ArXiv for full-text ingestion.
 Implements rate-limiting, HTML-first downloading, and local paper listing.
 """
 
-import json
-import logging
 import os
 import re
-import urllib.request
+import json
+import logging
 import urllib.error
-from datetime import datetime
+import urllib.request
 from pathlib import Path
+from datetime import datetime
 from typing import Optional, List
 
 import arxiv
@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 # Initialize Semantic Scholar
 api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
 sch = SemanticScholar(api_key=api_key)
+
 
 
 def omni_search_papers(query: str, limit: int = 10) -> str:

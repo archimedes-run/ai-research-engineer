@@ -37,6 +37,7 @@ dependencies = [
     "tabulate>=0.10.0",
     "findpapers>=0.6.7",
     "anthropic>=0.93.0",
+    "faiss-cpu>=1.13.2",
 ]
 
 [project.urls]
