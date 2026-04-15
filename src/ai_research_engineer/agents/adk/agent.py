@@ -405,7 +405,8 @@ def create_agent(
     working_dir: Optional[str] = None,
     mcp_servers: Optional[List[str]] = None,
     template: str = "NeurReps_2024_Template",
-    research_mode: str = "novelty"
+    research_mode: str = "novelty",
+    domain: str = "aiml"
 ) -> SequentialAgent:
     """
     Factory function to create an AI Research Engineer ADK agent.
@@ -420,6 +421,8 @@ def create_agent(
         LaTeX template to use for the final manuscript
     research_mode: str
         "novelty" for inventing new ideas or "replication" for strictly replicating existing papers.
+    domain: str
+        Research domain context to inject into the agents.
 
     Returns
     -------
@@ -434,7 +437,7 @@ def create_agent(
     working_dir = Path(working_dir)
     working_dir.mkdir(parents=True, exist_ok=True)
     
-    logger.info(f"[AIResearcher] Creating ADK agent with working_dir={working_dir}, mode={research_mode}")
+    logger.info(f"[AIResearcher] Creating ADK agent with working_dir={working_dir}, mode={research_mode}, domain={domain}")
 
     # Pre-initialize the Research Vault folders
     for subdir in ["user_data", "workflow", "results", "literature", "knowledge_base", "manuscript"]:
@@ -638,7 +641,7 @@ def create_agent(
     # ------------------------- Summary Agent -------------------------
 
     logger.info("[AIResearcher] Loading summary_agent prompt")
-    summary_agent_instructions = load_prompt("summary")
+    summary_agent_instructions = load_prompt("summary", domain)
 
     logger.info(f"[AIResearcher] Creating summary_agent with model={DEFAULT_MODEL}")
 
@@ -661,20 +664,20 @@ def create_agent(
     
     if research_mode == "replication":
         logger.info("[Mode] Initializing Strict Replication Mode (PaperBench)")
-        generator_instructions = load_prompt("paper_analyzer")
-        scorer_instructions = load_prompt("replication_verifier")
+        generator_instructions = load_prompt("paper_analyzer", domain)
+        scorer_instructions = load_prompt("replication_verifier", domain)
         generator_desc = "Analyzes a paper and strictly extracts its methodology for exact replication."
         scorer_desc = "Verifies the extracted methodology against the original paper to ensure no hallucinated architectures or novelty."
     elif research_mode == "evolve":
         logger.info("[Mode] Initializing Evolve Mode (End-to-End Autonomous Optimization)")
-        generator_instructions = load_prompt("idea_generator")
-        scorer_instructions = load_prompt("novelty_scorer")
+        generator_instructions = load_prompt("idea_generator", domain)
+        scorer_instructions = load_prompt("novelty_scorer", domain)
         generator_desc = "Generates novel algorithmic architectures and hypotheses for evolution."
         scorer_desc = "Evaluates ideas for novelty, feasibility, and impact using literature tools."
     else:
         logger.info("[Mode] Initializing Novelty Mode (SaaS)")
-        generator_instructions = load_prompt("idea_generator")
-        scorer_instructions = load_prompt("novelty_scorer")
+        generator_instructions = load_prompt("idea_generator", domain)
+        scorer_instructions = load_prompt("novelty_scorer", domain)
         generator_desc = "Generates novel ML architectures and hypotheses."
         scorer_desc = "Evaluates ideas for novelty, feasibility, and impact using literature tools."
 
@@ -934,7 +937,8 @@ def create_app(
     working_dir: Optional[str] = None,
     mcp_servers: Optional[List[str]] = None,
     template: str = "NeurReps_2024_Template",
-    research_mode: str = "novelty"
+    research_mode: str = "novelty",
+    domain: str = "aiml"
 ) -> App:
     """
     Create an App instance with context management for the ADK agent.
@@ -949,6 +953,8 @@ def create_app(
         LaTeX template to use for the final manuscript
     research_mode: str
         "novelty" for inventing new ideas or "replication" for strictly replicating existing papers.
+    domain: str
+        Research domain context to inject into the agents.
 
     Returns
     -------
@@ -956,7 +962,7 @@ def create_app(
         The configured App with context caching and compression
     """
     # Create the root agent
-    root_agent = create_agent(working_dir=working_dir, mcp_servers=mcp_servers, template=template, research_mode=research_mode)
+    root_agent = create_agent(working_dir=working_dir, mcp_servers=mcp_servers, template=template, research_mode=research_mode, domain=domain)
 
     # Configure context caching (just creating the config enables caching)
     cache_config = ContextCacheConfig()

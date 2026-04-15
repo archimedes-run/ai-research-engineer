@@ -62,9 +62,9 @@ logger = logging.getLogger(__name__)
 )
 @click.option(
     '--domain',
-    type=click.Choice(['ai_ml', 'finance', 'biomed', 'algorithms']),
-    default='ai_ml',
-    help='Research domain context to inject into the agents (default: ai_ml).',
+    type=click.Choice(['aiml', 'finance', 'bioinformatics', 'algorithms', 'physics']),
+    default='aiml',
+    help='Research domain context to inject into the agents (default: aiml).',
 )
 @click.option(
     '--working-dir',
