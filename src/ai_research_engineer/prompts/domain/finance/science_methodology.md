@@ -241,3 +241,113 @@
 5. **Replicability**: Can independent researchers verify results with publicly available data?
 6. **Practical Implementation**: Can the strategy be implemented realistically with available capital?
 7. **Regulatory Compliance**: Does strategy comply with applicable regulations and ethical standards?
+
+---
+
+---
+
+# MVPT Translation for Finance Domain
+
+This section explains how the universal MVPT novelty framework (from `novelty_scorer.md`) applies specifically to finance research.
+
+## M - Method Novelty in Finance
+**What counts as "new method":**
+- ✓ Novel trading signal (discovered pattern in market microstructure not documented before)
+- ✓ New risk model (captures hidden factor not in existing Fama-French, APT models)
+- ✓ New portfolio construction approach (new optimization technique or allocation rule)
+- ✓ New econometric methodology for causal inference
+- ✗ NOT: Reweighting existing portfolio (adjusting weights in Markowitz = M:2)
+- ✗ NOT: Adjusting signal threshold (changing cutoff on known signal = M:1)
+- ✗ NOT: Applying known factor model to new dataset = M:2
+
+**Scoring Guide:**
+- M:9-10 = Entirely new signal type or portfolio paradigm
+- M:7-8 = Novel combination with economic justification (e.g., new factor with theory)
+- M:5-6 = Better implementation/efficiency on known approach
+- M:3-4 = Known approach with modifications
+- M:0-2 = Using published method as-is
+
+---
+
+## V - Verifiability in Finance (8-Point Checklist)
+
+**Verification Checklist:**
+1. **Backtest Code Released?** GitHub with full implementation → 1 point
+2. **Data Source Clearly Specified?** Yahoo, Bloomberg, CRSP, public source → 1 point
+3. **Transaction Costs Included?** Bid-ask spreads, commissions, market impact → 1 point
+4. **Walk-Forward Validation Shown?** Not just in-sample, tested on OOS data → 1 point
+5. **Benchmark Clearly Defined?** SPY, Russell 2000, comparison index specified → 1 point
+6. **Risk Metrics Reported?** Sharpe ratio, max drawdown, Calmar ratio → 1 point
+7. **Out-of-Sample Testing?** Recent data not used in optimization → 1 point
+8. **Others Can Replicate?** Sufficient detail with public data → 1 point
+
+**Scoring:**
+- 7-8/8 passing = 7.5-8.5 points (fully reproducible backtest)
+- 5-6/8 passing = 5.5-6.5 points (mostly reproducible)
+- 3-4/8 passing = 3.5-4.5 points (partially reproducible)
+- <3/8 passing = 1-3 points (barely reproducible)
+
+**FATAL**: If V < 3, reject immediately (cannot verify trading results).
+
+---
+
+## P - Principle Power in Finance
+
+**What "explaining why it works" means:**
+- ✓ **Economic mechanism**: "This signal exploits limits-to-arbitrage because..." with evidence
+- ✓ **Ablation studies**: Remove signal → Sharpe drops; remove hedge → drawdown increases
+- ✓ **Factor decomposition**: Show which factors drive returns, show orthogonality
+- ✗ NOT: Backtest returns alone ("15% annual return")
+- ✗ NOT: "We found positive returns" without economic explanation
+
+**Scoring Guide:**
+- P:9-10 = Strong economic mechanism + ablations showing causation
+- P:7-8 = Good economic intuition + supporting empirical analysis
+- P:5-6 = Ablations show what matters, mechanism still unclear
+- P:3-4 = Hand-wavy explanation ("market is inefficient")
+- P:0-2 = Black box, "it works empirically"
+
+**Example Interpretations:**
+- Value factor with economic theory (prices recover) + ablations = P:8
+- "Momentum works" with no economic explanation = P:2
+- New signal with Fama-MacBeth regressions + t-stats = P:6
+
+---
+
+## T - Transfer in Finance
+
+**What "generalization" means:**
+- ✓ **Multi-asset class**: Strategy works on equities, bonds, commodities
+- ✓ **Multi-period**: Works across different time periods and market regimes
+- ✓ **Multi-market**: Works in US, international, emerging markets
+- ✗ NOT: Only tested on SPY (one index)
+- ✗ NOT: Only works in bull markets (regime-specific)
+- ✗ NOT: Only for XYZ company stock
+
+**Scoring Guide:**
+- T:9-10 = Works across asset classes, time periods, and markets
+- T:7-8 = Works across multiple asset classes or time periods
+- T:5-6 = Might generalize with modification
+- T:3-4 = Specific to one asset class or period
+- T:0-2 = Only this specific stock/period
+
+**Examples:**
+- Fama-French size/value factors (stocks, bonds, international) = T:9
+- New volatility model for equities (works 2000-2024, US and EU) = T:7
+- "Momentum in tech stocks" (only NASDAQ 100) = T:3
+- "Trading signal for Apple" (only AAPL) = T:1
+
+---
+
+## Red Flags Specific to Finance
+
+- ❌ **Survivorship bias**: Only includes companies that survived, excludes bankruptcies
+- ❌ **Look-ahead bias**: Uses price data from future dates in strategy
+- ❌ **No transaction costs**: Assumes free trading ("bid-ask spread negligible")
+- ❌ **Baselines too weak**: Only buy-and-hold, no hedging strategies
+- ❌ **In-sample testing only**: No walk-forward validation
+- ❌ **Multiple strategy testing**: "Tested 100 signals, reporting best one" without correction
+- ❌ **Liquidity assumptions**: "Assumes we can execute $1B daily" without verification
+- ❌ **Correlation assumptions**: Assumes correlations stable during crises (false)
+- ❌ **One asset class only**: Tested only on equities, not generalized
+- ❌ **P-hacking**: Testing many periods, strategies, thresholds without Bonferroni

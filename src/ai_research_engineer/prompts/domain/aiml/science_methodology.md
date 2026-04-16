@@ -326,3 +326,108 @@
 8. **Impact**: Does work enable new applications or advance the field?
 9. **Fairness**: Does method exhibit bias? Are there adverse side effects?
 10. **Clarity**: Is work clearly presented and easy to understand?
+
+---
+
+---
+
+# MVPT Translation for AI/ML Domain
+
+This section explains how the universal MVPT novelty framework (from `novelty_scorer.md`) applies specifically to AI/ML research.
+
+## M - Method Novelty in AI/ML
+**What counts as "new method":**
+- ✓ New architecture (Transformers, Vision Transformers, Diffusion Models, Mixture of Experts)
+- ✓ New training paradigm (Contrastive learning, RLHF, Constitutional AI, self-supervised learning)
+- ✓ New theoretical framework (Scaling laws, emergence, mechanistic interpretability)
+- ✗ NOT: Fine-tuning existing models (BERT fine-tuning on new task = M:3)
+- ✗ NOT: Hyperparameter tuning (grid search, learning rate adjustment = M:1)
+- ✗ NOT: Data augmentation on known architecture = M:2
+
+**Scoring Guide:**
+- M:9-10 = Entirely new architecture class or training paradigm
+- M:7-8 = Novel combination with theoretical justification (e.g., Transformer + scaling laws)
+- M:5-6 = Better optimization/efficiency on known architecture
+- M:3-4 = Same architecture with modifications
+- M:0-2 = Using published method as-is
+
+---
+
+## V - Verifiability in AI/ML (8-Point Checklist)
+
+**Verification Checklist:**
+1. **Code Released?** GitHub/Zenodo with MIT/Apache/BSD license → 1 point
+2. **Deterministic (Fixed Seeds)?** All random seeds documented and reproducible → 1 point
+3. **Dataset Publicly Available?** Links to public dataset or clear download instructions → 1 point
+4. **Hyperparameters Fully Specified?** Learning rate, batch size, optimizer, schedule → 1 point
+5. **Hardware & Training Time Documented?** GPU type, training hours, approximate cost → 1 point
+6. **Results Reproducible (±5%)?** Your results match reported results within 5% → 1 point
+7. **Ablation Study Code?** Code for ablations provided, not just results → 1 point
+8. **Dependencies Pinned?** Python version, PyTorch/TF version, CUDA version specified → 1 point
+
+**Scoring:**
+- 7-8/8 passing = 7.5-8.5 points (fully reproducible)
+- 5-6/8 passing = 5.5-6.5 points (mostly reproducible)
+- 3-4/8 passing = 3.5-4.5 points (partially reproducible)
+- <3/8 passing = 1-3 points (barely reproducible)
+
+**FATAL**: If V < 3, reject immediately (science requires reproducibility).
+
+---
+
+## P - Principle Power in AI/ML
+
+**What "explaining why it works" means:**
+- ✓ **Theory**: "Attention mechanism enables parallelization" with mathematical proof
+- ✓ **Ablation Studies**: Remove each component, show performance drop, isolate causation
+- ✗ NOT: Accuracy numbers alone ("95% vs 92% accuracy")
+- ✗ NOT: "Bigger models work better" without understanding why
+
+**Scoring Guide:**
+- P:9-10 = Strong theoretical analysis OR detailed ablations revealing mechanism
+- P:7-8 = Partial theory + supporting ablations
+- P:5-6 = Ablations show what matters, mechanism still unclear
+- P:3-4 = Hand-wavy explanation, no rigorous analysis
+- P:0-2 = Black box, no attempt to explain
+
+**Example Interpretations:**
+- Attention paper with parallelization theory + ablations on attention heads = P:8
+- "Vision Transformer outperforms CNN" with no mechanism analysis = P:2
+- Scaling laws with both theory and empirical validation across scales = P:9
+
+---
+
+## T - Transfer in AI/ML
+
+**What "generalization" means:**
+- ✓ **Multi-modal transfer**: Architecture works in NLP, vision, audio, RL
+- ✓ **Multi-task transfer**: Same approach works for classification, generation, reasoning
+- ✓ **Scale transfer**: Works at small scales (millions of parameters) and large scales (billions)
+- ✗ NOT: Only tested on one dataset (e.g., ImageNet only)
+- ✗ NOT: Only works on specific domain (face recognition)
+
+**Scoring Guide:**
+- T:9-10 = Works across multiple modalities/tasks/scales
+- T:7-8 = Works across related modalities or tasks
+- T:5-6 = Might generalize with modification
+- T:3-4 = Specific to one task or domain
+- T:0-2 = Only works on this exact problem/dataset
+
+**Examples:**
+- Attention mechanism (NLP → Vision → Speech → RL) = T:9
+- Vision Transformer (classification → detection → segmentation) = T:8
+- "BERT for biomedical text" (works on MedQA, PubMed) = T:6
+- "Model trained on ImageNet" (only tested on ImageNet) = T:1
+
+---
+
+## Red Flags Specific to AI/ML
+
+- ❌ **Code unavailable**: "Available on request" is unacceptable
+- ❌ **Seeds not fixed**: Different runs give different results with no explanation
+- ❌ **Proprietary datasets**: Cannot reproduce on public data
+- ❌ **Baselines too weak**: Only random/greedy when SOTA exists from last 2 years
+- ❌ **Test set in hyperparameter tuning**: Inflates reported performance
+- ❌ **No ablations**: Can't prove which component drives improvement
+- ❌ **Hardware/version differences**: "Developed in TensorFlow 2.10, tested in PyTorch 1.9"
+- ❌ **Only best-run reported**: "Best of 10 seeds" without reporting variance

@@ -287,3 +287,119 @@
 6. **Reproducibility**: Is code available and sufficient detail provided?
 7. **Generality**: Does result apply to broad problem class or is it specialized?
 8. **Impact**: Does result influence future research or enable new applications?
+
+---
+
+---
+
+# MVPT Translation for Algorithms Domain
+
+This section explains how the universal MVPT novelty framework (from `novelty_scorer.md`) applies specifically to algorithms research.
+
+## M - Method Novelty in Algorithms
+**What counts as "new method":**
+- ✓ New algorithm class solving problem with better complexity
+- ✓ First algorithm for previously unsolvable problem
+- ✓ Complexity improvement on known problem (e.g., O(n²) → O(n log n))
+- ✓ Novel algorithmic technique with broad applicability
+- ✗ NOT: Implementation optimization of known algorithm (M:2)
+- ✗ NOT: Constant factor improvement (M:2)
+- ✗ NOT: Combination of existing techniques without new principle (M:2)
+
+**Scoring Guide:**
+- M:9-10 = Entirely new algorithm class or paradigm (e.g., FFT was this)
+- M:7-8 = Significant complexity reduction on known problem
+- M:5-6 = Implementation optimization or engineering improvement
+- M:3-4 = Minor variant of known algorithm
+- M:0-2 = Re-implementing published algorithm
+
+---
+
+## V - Verifiability in Algorithms (8-Point Checklist)
+
+**Verification Checklist:**
+1. **Code Released?** GitHub/Zenodo with working implementation → 1 point
+2. **Edge Cases Tested?** Empty input, single element, boundary conditions → 1 point
+3. **Large Inputs Tested?** Scaling studies to n = 10⁶ or 10⁷ → 1 point
+4. **Time/Space Complexity Verified?** Empirical scaling matches theory → 1 point
+5. **Correctness Proof Provided?** Formal or detailed correctness argument → 1 point
+6. **Baseline Code Included?** Can compare against prior methods → 1 point
+7. **Timing Results Reproducible?** ±10% variance with same input size → 1 point
+8. **Others Can Replicate?** Sufficient detail, no missing steps → 1 point
+
+**Scoring:**
+- 7-8/8 passing = 7.5-8.5 points (fully reproducible)
+- 5-6/8 passing = 5.5-6.5 points (mostly reproducible)
+- 3-4/8 passing = 3.5-4.5 points (partially reproducible)
+- <3/8 passing = 1-3 points (barely reproducible)
+
+**FATAL**: If V < 3, reject immediately (algorithm must be verifiable).
+
+---
+
+## P - Principle Power in Algorithms
+
+**What "explaining why it works" means:**
+- ✓ **Proof of correctness**: Formal or detailed argument that algorithm produces correct output
+- ✓ **Complexity analysis**: Rigorous proof of time/space bounds with explanation
+- ✓ **Key insight explanation**: Why does this approach achieve better complexity?
+- ✗ NOT: "Empirically faster" without proof
+- ✗ NOT: Code without explanation
+
+**Scoring Guide:**
+- P:9-10 = Formal correctness proof + detailed complexity analysis
+- P:7-8 = Correctness proof (informal) + complexity justified
+- P:5-6 = Algorithm works empirically, complexity explained but not proven
+- P:3-4 = Vague explanation, complexity unclear
+- P:0-2 = Black box, "it works"
+
+**Example Interpretations:**
+- QuickSort with divide-and-conquer proof + O(n log n) average case = P:8
+- "Algorithm is faster" without proof = P:1
+- FFT with signal processing explanation + O(n log n) proof = P:9
+
+---
+
+## T - Transfer in Algorithms
+### **SPECIAL DEFINITION FOR ALGORITHMS DOMAIN**
+
+**Important**: For Algorithms, T does **NOT** mean cross-domain applicability.  
+Instead, T measures: **Theoretical Generalization & Scalability**
+
+**What "generalization" means in Algorithms:**
+- ✓ **Broad input class**: Works for any input in problem class (not just special cases)
+- ✓ **Asymptotic scalability**: Handles n → ∞ efficiently, proven complexity
+- ✓ **General problem variant**: Applies beyond one specific problem formulation
+- ✗ NOT: Only works on specific graph structures (e.g., "only for DAGs")
+- ✗ NOT: Only efficient up to n < 10,000 (doesn't scale)
+- ✗ NOT: Only for one instance (M-specific traveling salesman, specific knapsack)
+
+**Scoring Guide:**
+- T:9-10 = Works for any input in broad problem class, scales asymptotically
+- T:7-8 = Works for broad class, scales well
+- T:5-6 = Might generalize with modification
+- T:3-4 = Limited to specific problem or constraint
+- T:0-2 = Only handles one edge case or instance
+
+**Examples:**
+- QuickSort: Works for any comparable data, O(n log n) average → T:9
+- Dijkstra: Works for any weighted graph, O(E log V) → T:9
+- Algorithm for 5-node graphs: Only n=5, not generalizable → T:1
+- Optimization for DAGs: Only that specific structure → T:2
+- "Fast algorithm for this specific matrix" (unique structure) → T:1
+- Graph algorithm proven for n < 1000: Doesn't scale asymptotically → T:2
+
+---
+
+## Red Flags Specific to Algorithms
+
+- ❌ **Complexity not proven**: "Faster than X" without proof
+- ❌ **Only toy examples**: "Works on graphs with 10-100 nodes"
+- ❌ **Incorrect proofs**: Logical gaps, unstated assumptions
+- ❌ **No baseline code**: Can't compare against prior work
+- ❌ **Edge cases ignored**: "Assumes well-formed input"
+- ❌ **Unfair comparison**: Different languages, compiler optimizations
+- ❌ **Worst-case hidden**: "Average case O(n), but worst case O(n²)" not addressed
+- ❌ **Generality overclaimed**: "Works for all graphs" but actually only for directed acyclic graphs
+- ❌ **Scalability not tested**: "Should work for larger n" without verification
+- ❌ **Code unavailable**: "Proprietary implementation"
