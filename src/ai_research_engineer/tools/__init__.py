@@ -1,6 +1,6 @@
 """
 Tools for AI Research Engineer agents.
-Provides file system, web fetch, arXiv, Semantic Scholar, and Code Graph tools.
+Provides file system, web fetch, arXiv, Semantic Scholar, Code Graph, and LaTeX tools.
 All file operations are read-only and enforce working_dir sandboxing.
 """
 
@@ -49,6 +49,9 @@ from ai_research_engineer.tools.code_graph_ops import (
     search_code_semantically
 )
 
+# Import LaTeX tools
+from ai_research_engineer.tools.latex_ops import compile_latex_to_pdf
+
 __all__ = [
     # Base tools
     "read_file",
@@ -89,5 +92,8 @@ __all__ = [
 
     # Data tools
     "query_duckdb",
-    "get_schema"
+    "get_schema",
+
+    # LaTeX tools
+    "compile_latex_to_pdf",
 ]

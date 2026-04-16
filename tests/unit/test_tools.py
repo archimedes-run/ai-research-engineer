@@ -31,6 +31,7 @@ from ai_research_engineer.tools import (
     build_knowledge_graph,
     get_code_context,
     query_code_structure,
+    compile_latex_to_pdf,
 )
 
 
@@ -375,3 +376,60 @@ class TestCodeGraphOps:
         assert "path" in args
         assert "modela" in args
         assert "modelb" in args
+
+
+# ==========================================
+# LATEX OPS TESTS
+# ==========================================
+
+class TestLatexOps:
+    """Tests for LaTeX compilation tool."""
+
+    def test_compile_missing_file(self, temp_workspace):
+        """Returns error when .tex file does not exist."""
+        (temp_workspace / "manuscript").mkdir(exist_ok=True)
+        result = compile_latex_to_pdf("nonexistent.tex", str(temp_workspace))
+        assert "Error: Could not find" in result
+
+    @patch("ai_research_engineer.tools.latex_ops.subprocess.run")
+    def test_compile_success(self, mock_run, temp_workspace):
+        """Returns SUCCESS when both pdflatex passes succeed and PDF is produced."""
+        manuscript_dir = temp_workspace / "manuscript"
+        manuscript_dir.mkdir(exist_ok=True)
+        results_dir = temp_workspace / "results"
+        results_dir.mkdir(exist_ok=True)
+
+        # Create a fake .tex and the expected output PDF
+        (manuscript_dir / "main.tex").write_text(r"\documentclass{article}\begin{document}Hello\end{document}")
+        (manuscript_dir / "main.pdf").write_bytes(b"%PDF-1.4")
+
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_run.return_value = mock_result
+
+        result = compile_latex_to_pdf("main.tex", str(temp_workspace))
+
+        assert "SUCCESS" in result
+        assert "final_research_paper.pdf" in result
+        # PDF should have been copied to results/
+        assert (results_dir / "final_research_paper.pdf").exists()
+        # pdflatex is called twice
+        assert mock_run.call_count == 2
+
+    @patch("ai_research_engineer.tools.latex_ops.subprocess.run")
+    def test_compile_failure_on_first_pass(self, mock_run, temp_workspace):
+        """Returns FAILED message with error log snippet when pdflatex exits non-zero."""
+        manuscript_dir = temp_workspace / "manuscript"
+        manuscript_dir.mkdir(exist_ok=True)
+        (manuscript_dir / "main.tex").write_text(r"\bad syntax")
+
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stdout = "\n".join([f"log line {i}" for i in range(30)])
+        mock_run.return_value = mock_result
+
+        result = compile_latex_to_pdf("main.tex", str(temp_workspace))
+
+        assert "FAILED" in result
+        assert "pass 1" in result
+        assert "fix the syntax errors" in result

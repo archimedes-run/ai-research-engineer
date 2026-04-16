@@ -494,7 +494,9 @@ def create_agent(
         get_code_context,
         get_code_blast_radius,
         query_code_structure,
-        search_code_semantically
+        search_code_semantically,
+        # LaTeX Tools
+        compile_latex_to_pdf as _compile_latex_to_pdf,
     )
 
     # Bind working_dir using wrapper functions that completely hide the parameter
@@ -579,6 +581,10 @@ def create_agent(
     def search_code_semantically_bound(query: str) -> str:
         return search_code_semantically(query, working_dir_str)
 
+    def compile_latex_to_pdf_bound(tex_file_name: str) -> str:
+        """Compiles a .tex file in the manuscript/ directory to PDF using pdflatex."""
+        return _compile_latex_to_pdf(tex_file_name, working_dir_str)
+
 
     tools = [
         # Base File Tools
@@ -618,7 +624,10 @@ def create_agent(
         get_code_context_bound,
         get_code_blast_radius_bound,
         query_code_structure_bound,
-        search_code_semantically_bound
+        search_code_semantically_bound,
+
+        # LaTeX Tools
+        compile_latex_to_pdf_bound,
     ]
 
     # Only add fetch_url if network access is not disabled
@@ -639,26 +648,45 @@ def create_agent(
         max_iterations=5,
     )
 
-    # ------------------------- Summary Agent -------------------------
+    # ------------------------- Paper Writing Loop -------------------------
 
-    logger.info("[AIResearcher] Loading summary_agent prompt")
-    summary_agent_instructions = load_prompt("summary", domain)
+    logger.info("[AIResearcher] Creating Paper Writing Loop")
 
-    logger.info(f"[AIResearcher] Creating summary_agent with model={DEFAULT_MODEL}")
+    # 1. The Writer (Claude Code Agent - so it can write code and compile)
+    paper_writer_agent = ClaudeCodeAgent(
+        name="paper_writer_agent",
+        description="Drafts the academic manuscript in LaTeX and compiles it to PDF.",
+        working_dir=str(working_dir),
+        output_key="paper_draft_summary",
+        after_agent_callback=create_compression_callback(event_threshold=40, overlap_size=20),
+    )
 
-    summary_agent = LoopDetectionAgent(
-        name="summary_agent",
-        model=DEFAULT_MODEL,
-        description="Summarizes results into a comprehensive pure text report.",
-        instruction=summary_agent_instructions,
-        tools=tools,  # Needs tools to read files
-        planner=BuiltInPlanner(
-            thinking_config=types.ThinkingConfig(
-                include_thoughts=True,
-                thinking_budget=-1,
-            ),
-        ),
-        generate_content_config=get_generate_content_config(temperature=0.3),
+    # 2. The Reviewer (Reads the paper and checks against results/)
+    paper_reviewer_instructions = load_prompt("paper_reviewer", domain)
+    paper_reviewer_agent = LoopDetectionAgent(
+        name="paper_reviewer_agent",
+        model=REVIEW_MODEL,
+        description="Audits the drafted LaTeX paper for hallucinations and metric accuracy.",
+        instruction=paper_reviewer_instructions,
+        tools=tools,  # Needs tools to read the .tex file and the results/ directory
+        output_key="paper_review_feedback",
+        planner=BuiltInPlanner(thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=-1)),
+        generate_content_config=get_generate_content_config(temperature=0.1),
+        after_agent_callback=create_compression_callback(event_threshold=40, overlap_size=20),
+    )
+
+    # 3. The Confirmation Gate
+    paper_confirmation_agent = create_review_confirmation_agent(
+        auto_exit_on_completion=True,
+        prompt_name="paper_review_confirmation",
+    )
+
+    # 4. The Loop
+    paper_writing_loop = NonEscalatingLoopAgent(
+        name="paper_writing_loop",
+        description="Iterative loop to write, compile, and peer-review the final academic paper.",
+        sub_agents=[paper_writer_agent, paper_reviewer_agent, paper_confirmation_agent],
+        max_iterations=5,
     )
 
     # ------------------------- Dynamic Ideation/Replication Loop (NEW) -------------------------
@@ -921,7 +949,7 @@ def create_agent(
     if research_mode == "evolve":
         workflow_agents.append(evolution_loop)  # The mutation loop takes over
         
-    workflow_agents.append(summary_agent)  # Finally, write the paper
+    workflow_agents.append(paper_writing_loop)  # Finally, write the paper
 
     workflow = SequentialAgent(
         name="ai_research_engineer_workflow",
