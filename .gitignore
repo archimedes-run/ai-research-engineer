@@ -47,5 +47,9 @@ model/
 
 # Data and outputs
 data/
+.data/
 agentic_output/
 experiments/
+
+# Logs
+logs/

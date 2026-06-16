@@ -15,6 +15,8 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
     "google-adk==1.18.0",
     "google-genai>=1.26.0",
     "claude-agent-sdk>=0.1.5",
