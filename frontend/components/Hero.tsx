@@ -1,8 +1,9 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import { Play, Github } from 'lucide-react'
+import { BookOpen, Github } from 'lucide-react'
 import Image from 'next/image'
+import Link from 'next/link'
 import AsciiOverlay from './AsciiOverlay'
 
 const fadeUp = (delay: number) => ({
@@ -59,7 +60,7 @@ export default function Hero() {
             <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-brand" />
           </span>
           <span className="font-brand text-[11px] text-white tracking-[0.18em] uppercase font-bold">
-            Autonomous Research Active
+            Open-Source Autonomous Research Framework
           </span>
         </motion.div>
 
@@ -92,16 +93,24 @@ export default function Hero() {
           {...fadeUp(1.25)}
           className="flex items-center gap-4 flex-wrap justify-center"
         >
-          <button className="btn-glow group relative flex items-center gap-2.5 px-8 py-3.5 rounded-full bg-brand text-white font-body font-medium text-sm overflow-hidden cursor-pointer shadow-lg">
+          <Link
+            href="/docs"
+            className="btn-glow group relative flex items-center gap-2.5 px-8 py-3.5 rounded-full bg-brand text-white font-body font-medium text-sm overflow-hidden cursor-pointer shadow-lg"
+          >
             <span className="absolute inset-0 bg-white/0 group-hover:bg-white/10 transition-all duration-300" />
-            <Play className="w-4 h-4 fill-current shrink-0" />
-            Watch Live Session
-          </button>
+            <BookOpen className="w-4 h-4 shrink-0" />
+            Read the Docs
+          </Link>
 
-          <button className="flex items-center gap-2.5 px-8 py-3.5 rounded-full border border-white/20 bg-black/40 text-white font-body font-medium text-sm backdrop-blur-md hover:bg-black/60 transition-all duration-200 cursor-pointer shadow-sm">
+          <Link
+            href="https://github.com/archimedes-run/ai-research-engineer"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2.5 px-8 py-3.5 rounded-full border border-white/20 bg-black/40 text-white font-body font-medium text-sm backdrop-blur-md hover:bg-black/60 transition-all duration-200 cursor-pointer shadow-sm"
+          >
             <Github className="w-4 h-4 shrink-0" />
             View GitHub
-          </button>
+          </Link>
         </motion.div>
       </div>
 

@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import { Github } from 'lucide-react'
 
 export default function Footer() {
@@ -22,14 +23,20 @@ export default function Footer() {
           >
             About
           </a>
-          <a
-            href="#sessions"
+          <Link
+            href="/docs"
             className="font-body text-sm text-ink-muted hover:text-ink transition-colors duration-200"
           >
-            Sessions
-          </a>
+            Docs
+          </Link>
+          <Link
+            href="/blog"
+            className="font-body text-sm text-ink-muted hover:text-ink transition-colors duration-200"
+          >
+            Blog
+          </Link>
           <a
-            href="https://github.com"
+            href="https://github.com/archimedes-run/ai-research-engineer"
             target="_blank"
             rel="noopener noreferrer"
             className="font-body text-sm text-ink-muted hover:text-ink transition-colors duration-200 flex items-center gap-1.5"

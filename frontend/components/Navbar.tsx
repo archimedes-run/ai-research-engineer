@@ -39,8 +39,7 @@ export default function Navbar() {
         <div className="flex items-center gap-8">
           {[
             { label: 'About', href: '#about' },
-            { label: 'Sessions', href: '/sessions' },
-            { label: 'Papers', href: '/papers' },
+            { label: 'Docs', href: '/docs' },
             { label: 'Blog', href: '/blog' },
           ].map((item) => (
             <Link
@@ -51,12 +50,6 @@ export default function Navbar() {
                   : 'text-white/80 hover:text-white drop-shadow-sm'
                 }`}
             >
-              {item.label === 'Sessions' && (
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#E05240] opacity-75" />
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-[#E05240]" />
-                </span>
-              )}
               {item.label}
             </Link>
           ))}
