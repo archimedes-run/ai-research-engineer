@@ -1,7 +1,9 @@
 'use client'
 
-import { motion } from 'framer-motion'
+import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import Link from 'next/link'
+import { ChevronDown } from 'lucide-react'
 
 const fadeUp = (delay: number) => ({
   initial: { opacity: 0, y: 20 },
@@ -63,10 +65,12 @@ const toc = [
 ]
 
 export default function DocsClient() {
+  const [tocOpen, setTocOpen] = useState(false)
+
   return (
-    <div className="min-h-screen bg-[#FCF1EB] paper-grain">
+    <div className="min-h-screen bg-[#FCF1EB] paper-grain overflow-x-hidden">
       {/* Header */}
-      <div className="pt-40 pb-16 px-6 max-w-7xl mx-auto">
+      <div className="pt-32 md:pt-40 pb-12 md:pb-16 px-4 sm:px-6 max-w-7xl mx-auto">
         <motion.div {...fadeUp(0)} className="mb-4">
           <span className="font-mono text-[10px] tracking-[0.4em] text-[#E05240] uppercase font-bold">
             Documentation
@@ -74,13 +78,13 @@ export default function DocsClient() {
         </motion.div>
         <motion.h1
           {...fadeUp(0.1)}
-          className="font-display text-5xl md:text-7xl text-[#3C2F2A] italic leading-[1.05] max-w-4xl"
+          className="font-display text-4xl sm:text-5xl md:text-7xl text-[#3C2F2A] italic leading-[1.05] max-w-4xl"
         >
           How to run an autonomous research lab.
         </motion.h1>
         <motion.p
           {...fadeUp(0.2)}
-          className="font-body text-lg text-[#3C2F2A]/70 max-w-2xl mt-6 leading-relaxed"
+          className="font-body text-base md:text-lg text-[#3C2F2A]/70 max-w-2xl mt-6 leading-relaxed"
         >
           Give Archimedes a hypothesis, paper, dataset, or benchmark. It produces a complete,
           reproducible research trace: literature map, plan, code, experiments, metrics,
@@ -89,10 +93,74 @@ export default function DocsClient() {
         </motion.p>
       </div>
 
-      <div className="max-w-7xl mx-auto px-6 grid md:grid-cols-[200px_1fr] gap-12">
-        {/* Sticky TOC */}
-        <aside className="hidden md:block">
-          <div className="sticky top-28 space-y-1">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 md:grid md:grid-cols-[200px_1fr] md:gap-12">
+        {/* Collapsible index */}
+        <aside className="mb-8 md:mb-0">
+          {/* Mobile: sticky toggle with floating overlay panel */}
+          <div className="md:hidden sticky top-[68px] z-40 -mx-4 sm:-mx-6 px-4 sm:px-6 py-3 bg-[#FCF1EB]/95 backdrop-blur-md border-b border-[#3C2F2A]/10">
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setTocOpen((open) => !open)}
+                aria-expanded={tocOpen}
+                className="w-full flex items-center justify-between gap-2 font-mono text-[11px] tracking-[0.2em] uppercase text-[#3C2F2A]/70 border border-[#3C2F2A]/15 rounded-xl px-4 py-3 bg-[#FEF6F1]"
+              >
+                Contents
+                <ChevronDown
+                  className={`w-4 h-4 shrink-0 transition-transform duration-300 ${tocOpen ? 'rotate-180' : ''}`}
+                />
+              </button>
+
+              <AnimatePresence>
+                {tocOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                    className="absolute left-0 right-0 top-full mt-2 z-40 border border-[#3C2F2A]/15 rounded-xl px-4 py-2 bg-[#FEF6F1] shadow-xl"
+                  >
+                    {toc.map((item) => (
+                      <a
+                        key={item.id}
+                        href={`#${item.id}`}
+                        onClick={() => setTocOpen(false)}
+                        className="block font-body text-sm text-[#3C2F2A]/60 hover:text-[#E05240] transition-colors py-2 border-b border-[#3C2F2A]/8 last:border-b-0"
+                      >
+                        {item.label}
+                      </a>
+                    ))}
+                    <Link
+                      href="https://github.com/archimedes-run/ai-research-engineer"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => setTocOpen(false)}
+                      className="block font-body text-sm text-[#E05240] font-medium py-2"
+                    >
+                      View on GitHub →
+                    </Link>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+
+          {/* Mobile: backdrop blur over the rest of the page while open */}
+          <AnimatePresence>
+            {tocOpen && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.25 }}
+                onClick={() => setTocOpen(false)}
+                className="md:hidden fixed inset-0 z-30 bg-black/10 backdrop-blur-sm"
+              />
+            )}
+          </AnimatePresence>
+
+          {/* Desktop: always-visible sticky list */}
+          <div className="hidden md:block sticky top-28 space-y-1">
             {toc.map((item) => (
               <a
                 key={item.id}
@@ -114,7 +182,7 @@ export default function DocsClient() {
         </aside>
 
         {/* Content */}
-        <div className="pb-32">
+        <div className="pb-24 md:pb-32 min-w-0">
           <Section id="overview" eyebrow="01 // What it is" title="Overview">
             <p>
               <strong>AI Research Engineer</strong> (codename <em>Archimedes</em>) is an
