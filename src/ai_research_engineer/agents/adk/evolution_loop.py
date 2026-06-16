@@ -1,6 +1,6 @@
 """
-Evolutionary loop orchestrator for Agentic Data Scientist.
-This module provides a custom ADK agent that runs the ASI-Evolve mutation loop,
+Evolutionary loop orchestrator for AI Research Engineer.
+This module provides a custom ADK agent that runs the AI Research Engineer mutation loop,
 sampling past code nodes, mutating them via Claude, and storing the results.
 """
 
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 class EvolutionLoopAgent(BaseAgent):
     """
-    Custom orchestrator that manages the ASI-Evolve Darwinian loop.
+    Custom orchestrator that manages the AI Research Engineer Darwinian loop.
     This agent samples the FAISS database for a high-scoring past node,
     feeds it to the Coding Agent for mutation, runs the evaluation, 
     and uses the Analyzer Agent to learn from the results.
@@ -36,7 +36,7 @@ class EvolutionLoopAgent(BaseAgent):
     analyzer_agent : BaseAgent
         Agent that reflects on the mutation's success/failure.
     database : Database
-        The ASI-Evolve FAISS database tracking generations.
+        The AI Research Engineer FAISS database tracking generations.
     best_snapshot : BestSnapshotManager
         Manager that backs up the SOTA generation.
     max_generations : int
@@ -84,7 +84,7 @@ class EvolutionLoopAgent(BaseAgent):
 
     def _read_current_code(self, working_dir: Path) -> str:
         """Helper to extract the current evaluator code."""
-        code_file = working_dir / "workflow" / "code" # Assuming ASI-Evolve generic naming, adjust if needed (e.g. train.py)
+        code_file = working_dir / "workflow" / "code" # Assuming generic naming, adjust if needed (e.g. train.py)
         if not code_file.exists():
             code_file = working_dir / "workflow" / "initial_program.py"
         

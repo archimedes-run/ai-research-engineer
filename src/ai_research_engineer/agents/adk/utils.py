@@ -25,16 +25,16 @@ DEFAULT_MODEL_NAME = os.getenv("DEFAULT_MODEL", "google/gemini-2.5-pro")
 REVIEW_MODEL_NAME = os.getenv("REVIEW_MODEL", "google/gemini-2.5-pro")
 CODING_MODEL_NAME = os.getenv("CODING_MODEL", "claude-sonnet-4-5-20250929")
 
-logger.info(f"[AgenticDS] DEFAULT_MODEL={DEFAULT_MODEL_NAME}")
-logger.info(f"[AgenticDS] REVIEW_MODEL={REVIEW_MODEL_NAME}")
-logger.info(f"[AgenticDS] CODING_MODEL={CODING_MODEL_NAME}")
+logger.info(f"[AIResearchEngineer] DEFAULT_MODEL={DEFAULT_MODEL_NAME}")
+logger.info(f"[AIResearchEngineer] REVIEW_MODEL={REVIEW_MODEL_NAME}")
+logger.info(f"[AIResearchEngineer] CODING_MODEL={CODING_MODEL_NAME}")
 
 # Configure LiteLLM for OpenRouter
 # OpenRouter requires specific environment variables and configuration
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_API_BASE = os.getenv("OPENROUTER_API_BASE", "https://openrouter.ai/api/v1")
-OR_SITE_URL = os.getenv("OR_SITE_URL", "k-dense.ai")
-OR_APP_NAME = os.getenv("OR_APP_NAME", "Agentic Data Scientist")
+OR_SITE_URL = os.getenv("OR_SITE_URL", "ai-research-engineer.local")
+OR_APP_NAME = os.getenv("OR_APP_NAME", "AI Research Engineer")
 
 # Export for use in event compression
 __all__ = [
@@ -52,9 +52,9 @@ __all__ = [
 # Set up LiteLLM environment for OpenRouter
 if OPENROUTER_API_KEY:
     os.environ["OPENROUTER_API_KEY"] = OPENROUTER_API_KEY
-    logger.info("[AgenticDS] OpenRouter API key configured")
+    logger.info("[AIResearchEngineer] OpenRouter API key configured")
 else:
-    logger.warning("[AgenticDS] OPENROUTER_API_KEY not set - using default credentials")
+    logger.warning("[AIResearchEngineer] OPENROUTER_API_KEY not set - using default credentials")
 
 # Create LiteLLM model instances
 # LiteLLM will automatically route through OpenRouter when model names have the provider prefix (e.g., "google/", "anthropic/")

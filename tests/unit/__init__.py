@@ -1,1 +1,1 @@
-"""Unit tests for Agentic Data Scientist."""
+"""Unit tests for AI Research Engineer."""

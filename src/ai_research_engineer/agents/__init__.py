@@ -1,1 +1,1 @@
-"""Agent implementations for Agentic Data Scientist."""
+"""Agent implementations for AI Research Engineer."""

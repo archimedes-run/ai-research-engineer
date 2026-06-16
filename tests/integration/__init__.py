@@ -1,1 +1,1 @@
-"""Integration tests for Agentic Data Scientist."""
+"""Integration tests for AI Research Engineer."""

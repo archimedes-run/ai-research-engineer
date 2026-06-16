@@ -1,1 +1,1 @@
-"""Test suite for Agentic Data Scientist."""
+"""Test suite for AI Research Engineer."""

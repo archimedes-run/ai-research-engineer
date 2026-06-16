@@ -1,5 +1,5 @@
 """
-Custom stage orchestrator agent for Agentic Data Scientist.
+Custom stage orchestrator agent for AI Research Engineer.
 
 This module provides a custom orchestrator that feeds high-level stages one at a time
 to the implementation loop, checks success criteria after each stage, and adapts

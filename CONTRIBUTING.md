@@ -1,4 +1,4 @@
-# Contributing to Agentic Data Scientist
+# Contributing to AI Research Engineer
 
 Thanks for your interest in contributing!
 

@@ -1,1 +1,1 @@
-"""Base prompts for Agentic Data Scientist agents."""
+"""Base prompts for AI Research Engineer agents."""

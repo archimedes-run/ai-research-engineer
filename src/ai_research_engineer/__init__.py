@@ -1,7 +1,7 @@
 """
-Agentic Data Scientist - A General-Purpose Multi-Agent Framework.
+AI Research Engineer - A General-Purpose Multi-Agent Framework.
 
-Agentic Data Scientist provides a clean Python API and CLI for orchestrating complex tasks
+AI Research Engineer provides a clean Python API and CLI for orchestrating complex tasks
 using Google's Agent Development Kit (ADK) and Claude Code CLI agents.
 """
 

@@ -1,7 +1,7 @@
 """
-Agentic Data Scientist CLI interface.
+AI Research Engineer CLI interface.
 
-Simple command-line interface for running Agentic Data Scientist agents.
+Simple command-line interface for running AI Research Engineer agents.
 """
 
 import logging
@@ -108,7 +108,7 @@ def main(
     template: str,
 ):
     """
-    Run Agentic Data Scientist with a query.
+    Run AI Research Engineer with a query.
 
     IMPORTANT: You must specify --mode to choose between orchestrated (with planning)
     or simple (direct coding) execution. This ensures you're always aware of the
@@ -295,7 +295,7 @@ def main(
         click.echo("")
 
     except Exception as e:
-        click.echo(f"Error initializing Agentic Data Scientist: {e}", err=True)
+        click.echo(f"Error initializing AI Research Engineer: {e}", err=True)
         sys.exit(1)
 
     # Run query

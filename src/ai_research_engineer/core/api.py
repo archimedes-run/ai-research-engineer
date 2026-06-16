@@ -1,5 +1,5 @@
 """
-Core API for Agentic Data Scientist - Simplified stateless interface.
+Core API for AI Research Engineer - Simplified stateless interface.
 
 This module provides the main AIEngineer class for running agents
 with optional conversation context and file handling.
@@ -39,7 +39,7 @@ logging.getLogger("google_adk.google.adk.tools.base_authenticated_tool").setLeve
 
 @dataclass
 class SessionConfig:
-    """Configuration for an Agentic Data Scientist session."""
+    """Configuration for an AI Research Engineer session."""
 
     agent_type: str = "adk"  # "adk" or "claude_code" or "evolve"
     mcp_servers: Optional[List[str]] = None
@@ -76,7 +76,7 @@ class Result:
 
 class AIEngineer:
     """
-    Simplified stateless API for Agentic Data Scientist agents.
+    Simplified stateless API for AI Research Engineer agents.
 
     This class provides a clean interface for running ADK or Claude Code agents
     with optional conversation context and file handling.
@@ -109,7 +109,7 @@ class AIEngineer:
         research_mode: str = "novelty",
         domain: str = "ai_ml"
     ):
-        """Initialize Agentic Data Scientist core with configuration."""
+        """Initialize AI Research Engineer core with configuration."""
         # Generate session ID
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         unique_id = uuid.uuid4().hex[:8]
@@ -146,7 +146,7 @@ class AIEngineer:
         self.session_service = None
         self.runner = None
 
-        logger.info(f"Initialized Agentic Data Scientist session: {self.session_id}")
+        logger.info(f"Initialized AI Research Engineer session: {self.session_id}")
         logger.info(f"Working directory: {self.working_dir}")
         logger.info(f"Auto-cleanup enabled: {self.auto_cleanup}")
         logger.info(f"Research Mode: {self.config.research_mode}")

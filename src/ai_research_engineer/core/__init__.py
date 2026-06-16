@@ -1,4 +1,4 @@
-"""Core API and session management for Agentic Data Scientist."""
+"""Core API and session management for AI Research Engineer."""
 
 from ai_research_engineer.core.api import AIEngineer, FileInfo, Result, SessionConfig
 from ai_research_engineer.core.events import (

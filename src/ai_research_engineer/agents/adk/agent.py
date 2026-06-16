@@ -910,7 +910,7 @@ def create_agent(
 
     evolution_loop = None
     if research_mode == "evolve":
-        logger.info("[AIResearcher] Initializing ASI-Evolve Database and EvolutionLoopAgent")
+        logger.info("[AIResearcher] Initializing AI Research Engineer Database and EvolutionLoopAgent")
         from ai_research_engineer.evolve.database.database import Database
         from ai_research_engineer.evolve.utils.best_snapshot import BestSnapshotManager
         from ai_research_engineer.agents.adk.evolution_loop import EvolutionLoopAgent

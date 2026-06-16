@@ -1,5 +1,5 @@
 """
-Event data models for Agentic Data Scientist streaming responses.
+Event data models for AI Research Engineer streaming responses.
 
 Provides structured definitions for all event types used in the streaming interface.
 """
