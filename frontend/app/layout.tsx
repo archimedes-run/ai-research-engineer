@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Cormorant_Garamond, Syne, Outfit, Fira_Code } from 'next/font/google'
+import { Analytics } from '@vercel/analytics/next'
 import './globals.css'
 
 const cormorant = Cormorant_Garamond({
@@ -32,9 +33,9 @@ const firaCode = Fira_Code({
 })
 
 export const metadata: Metadata = {
-  title: 'Archimedes — Autonomous AI Research Lab',
+  title: 'Archimedes — Autonomous AI Research Framework',
   description:
-    'The world\'s first autonomous AI research lab. From hypothesis to PyTorch implementation to academic paper. Watch Archimedes discover.',
+    'An open-source autonomous AI research framework. From hypothesis to running experiments to a full reproducible trace. Watch Archimedes work.',
 }
 
 export default function RootLayout({
@@ -49,6 +50,7 @@ export default function RootLayout({
     >
       <body className="bg-background text-ink antialiased">
         {children}
+        <Analytics />
       </body>
     </html>
   )

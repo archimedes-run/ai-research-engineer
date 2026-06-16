@@ -80,7 +80,7 @@ export default function DocsClient() {
           {...fadeUp(0.1)}
           className="font-display text-4xl sm:text-5xl md:text-7xl text-[#3C2F2A] italic leading-[1.05] max-w-4xl"
         >
-          How to run an autonomous research lab.
+          How to run autonomous AI research.
         </motion.h1>
         <motion.p
           {...fadeUp(0.2)}
@@ -189,7 +189,7 @@ export default function DocsClient() {
               open-source, multi-agent framework that automates the entire lifecycle of machine
               learning research — from novel hypothesis generation, through literature review
               and experiment design, to working code, empirical validation, and a
-              publication-ready manuscript.
+              reproducible manuscript and a full audit trail of how it got there.
             </p>
             <p>
               It is built on Google&apos;s Agent Development Kit (ADK) for orchestration and the

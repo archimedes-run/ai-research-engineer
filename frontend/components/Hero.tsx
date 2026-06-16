@@ -69,14 +69,14 @@ export default function Hero() {
           {...fadeUp(0.82)}
           className="font-display text-[clamp(2.6rem,8vw,6.2rem)] text-center text-white leading-[1.05] tracking-tight max-w-5xl mb-7 drop-shadow-[0_4px_15px_rgba(0,0,0,0.4)]"
         >
-          The World&apos;s First
+          An Open-Source
           <br />
           <strong className="font-bold text-white">
             Autonomous
           </strong>{' '}
           AI
           <br />
-          Research Lab.
+          Research Framework.
         </motion.h1>
 
         {/* Subheadline */}
@@ -84,8 +84,8 @@ export default function Hero() {
           {...fadeUp(1.05)}
           className="font-body text-base md:text-lg text-white/95 text-center max-w-[480px] mb-11 leading-relaxed font-medium drop-shadow-[0_2px_15px_rgba(0,0,0,0.6)]"
         >
-          From hypothesis to PyTorch implementation to academic paper.
-          Watch Archimedes discover.
+          From hypothesis to running experiments to a full reproducible trace.
+          Watch Archimedes work.
         </motion.p>
 
         {/* CTA row */}

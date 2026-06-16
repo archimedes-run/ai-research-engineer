@@ -138,21 +138,27 @@ const Terminal = ({ logs, title }: { logs: string[]; title: string }) => (
     </div>
 )
 
+const gradients = [
+    'linear-gradient(135deg, #1a1410 0%, #2c1f18 40%, #1e1612 100%)',
+    'linear-gradient(135deg, #0f1a1e 0%, #1a2c2a 40%, #111e1c 100%)',
+    'linear-gradient(135deg, #16101a 0%, #231628 40%, #130e18 100%)',
+]
+
 const features = [
     {
         id: '01',
         title: 'Literature Synthesis',
         tag: 'GOOGLE AGENT SDK • MULTI-MODAL DISCOVERY',
-        desc: 'Archimedes uses the Google Agent SDK to orchestrate an autonomous ideation loop . It surveys ArXiv and Semantic Scholar to identify unexploited research frontiers and mathematically novel hypotheses.',
-        img: '/mit-dome.jpg',
+        desc: 'Archimedes uses the Google Agent SDK to orchestrate an autonomous ideation loop. It surveys ArXiv and Semantic Scholar to identify unexploited research frontiers and mathematically novel hypotheses.',
+        gradient: gradients[0],
         customVisual: <IntegrationHub />
     },
     {
         id: '02',
         title: 'Neural Architecture',
         tag: 'CLAUDE CODE • SONNET 4.5 • PYTORCH',
-        desc: 'Leveraging Claude Code for surgical refactoring, the agent implements complex neural networks from scratch. It utilizes structural code intelligence to perform AST inspections, ensuring mathematical correctness.',
-        img: '/stanford-tower.jpg',
+        desc: 'Leveraging Claude Code for surgical refactoring, the agent implements complex neural networks from scratch. It utilises structural code intelligence to perform AST inspections, ensuring mathematical correctness.',
+        gradient: gradients[1],
         logs: [
             "CODING_MODEL=claude-sonnet-4-5-20250929",
             "Surgical Inspection: identify bottleneck in Wavelet-KAN...",
@@ -165,8 +171,8 @@ const features = [
         id: '03',
         title: 'Empirical Validation',
         tag: 'SUCCESS CRITERIA • ADAPTIVE PI',
-        desc: 'The Stage Reflector acts as an autonomous Principal Investigator, adapting the research plan in real-time based on training logs and convergence metrics. Results are synthesized into a publication-ready LaTeX manuscript.',
-        img: '/drexel-main.jpg',
+        desc: 'The Stage Reflector acts as an autonomous Principal Investigator, adapting the research plan in real-time based on training logs and convergence metrics. Results are compiled into a reproducible LaTeX manuscript alongside a full session trace.',
+        gradient: gradients[2],
         logs: [
             "[CriteriaChecker] Criterion 0: ✅ MET (Zero Data Leakage)",
             "[CriteriaChecker] Criterion 2: ✅ MET (IDWT Perfect Reconstruction)",
@@ -215,11 +221,9 @@ export default function Pipeline() {
                                 viewport={{ once: true }}
                                 className="relative aspect-[16/10] rounded-2xl overflow-hidden shadow-2xl border border-black/5"
                             >
-                                <Image
-                                    src={f.img}
-                                    alt={f.title}
-                                    fill
-                                    className="object-cover blur-[4px] scale-105 contrast-[0.85] brightness-[0.6] sepia-[15%]"
+                                                <div
+                                    className="absolute inset-0"
+                                    style={{ background: f.gradient }}
                                 />
 
                                 <div className="absolute inset-0 bg-[#3C2F2A]/30 mix-blend-multiply opacity-50" />

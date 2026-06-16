@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { Github } from 'lucide-react'
 
+const currentYear = new Date().getFullYear()
+
 export default function Footer() {
   return (
     <footer className="py-16 px-6 md:px-10 bg-background border-t border-edge">
@@ -11,7 +13,7 @@ export default function Footer() {
             archimedes
           </div>
           <div className="font-body text-xs text-ink-dim">
-            archimedes.run — Autonomous AI Research Lab
+            archimedes.run — Autonomous AI Research Framework
           </div>
         </div>
 
@@ -48,7 +50,7 @@ export default function Footer() {
 
         {/* Copyright */}
         <div className="font-brand text-xs text-ink-faint">
-          © 2025 Archimedes Research Inc.
+          © {currentYear} Archimedes
         </div>
       </div>
     </footer>

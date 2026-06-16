@@ -1,7 +1,6 @@
 'use client'
 
 import { motion } from 'framer-motion'
-import Image from 'next/image'
 import Link from 'next/link'
 import { ArrowUpRight, GitBranch, Layers, Workflow } from 'lucide-react'
 
@@ -51,12 +50,7 @@ export default function BlogClient() {
             className="grid md:grid-cols-2 gap-10 md:gap-16 items-center"
           >
             <div className="relative aspect-[4/3] rounded-2xl overflow-hidden shadow-lg">
-              <Image
-                src="/mit-dome.jpg"
-                alt="The Architecture of AI Research Engineer"
-                fill
-                className="object-cover blur-[3px] scale-105 contrast-[0.85] brightness-[0.75] sepia-[20%] transition-all duration-700 group-hover:blur-[1px] group-hover:brightness-[0.65]"
-              />
+              <div className="absolute inset-0 bg-gradient-to-br from-[#1a1410] via-[#2c1f18] to-[#1e1612] transition-all duration-700 group-hover:brightness-75" />
               <div className="absolute inset-0 bg-gradient-to-t from-[#3C2F2A]/80 via-[#3C2F2A]/20 to-transparent" />
               <div className="absolute inset-0 grid grid-cols-3 gap-6 place-items-center p-10">
                 <Layers className="w-9 h-9 text-white/90 drop-shadow-lg" />
