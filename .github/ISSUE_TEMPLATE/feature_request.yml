@@ -1,0 +1,61 @@
+name: Feature Request
+description: Propose a new feature or improvement.
+labels: ["type:feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening a large feature request, consider opening a **design issue** first — half a page describing the approach, so we can align before building.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Describe the current pain point or gap.
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How would you like it to work? Be as concrete as possible.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Backend
+        - Frontend
+        - Both / Cross-cutting
+        - Docs
+    validations:
+      required: true
+
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Which roadmap phase does this fit?
+      options:
+        - Phase 1 — Stabilise the core
+        - Phase 2 — Human-in-the-loop
+        - Phase 3 — Live research cockpit
+        - Phase 4 — Outputs & rigor
+        - Phase 5 — Polish & adoption
+        - Not sure / new idea
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What else did you think about?
+
+  - type: checkboxes
+    id: contribution
+    attributes:
+      label: Contribution
+      options:
+        - label: I'm willing to open a PR for this.

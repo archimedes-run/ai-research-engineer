@@ -1,0 +1,39 @@
+name: Design Issue
+description: Propose a design for a larger feature before building it.
+labels: ["design"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Large changes (HITL engine, live streaming, new mode) get a design issue first. Keep it to half a page — goal is alignment before code, not a spec.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: What are we solving and why now?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed design
+      description: Key decisions, data flow, API shape, component boundaries. Bullet points are fine.
+    validations:
+      required: true
+
+  - type: textarea
+    id: open_questions
+    attributes:
+      label: Open questions
+      description: What are you unsure about or want input on?
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Backend
+        - Frontend
+        - Both / Cross-cutting

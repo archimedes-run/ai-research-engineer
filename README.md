@@ -1,87 +1,174 @@
-# AI Research Engineer
+# Archimedes — Autonomous AI Research Framework
 
-**An Autonomous Multi-Agent Framework for Rigorous Machine Learning Research**
-
+[![CI](https://github.com/archimedes-run/ai-research-engineer/actions/workflows/ci.yml/badge.svg)](https://github.com/archimedes-run/ai-research-engineer/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/ris3abh/ai-research-engineer/pulls)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
-[![PyPI version](https://badge.fury.io/py/ai-research-engineer.svg?icon=si%3Apython)](https://badge.fury.io/py/ai-research-engineer)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/archimedes-run/ai-research-engineer/blob/main/CONTRIBUTING.md)
 
-AI Research Engineer is an open-source framework designed to automate the entire lifecycle of AI research—from novel hypothesis generation to high-quality code implementation and final academic manuscript drafting. Built on Google's Agent Development Kit (ADK) and the Claude Agent SDK, the system leverages structural code intelligence and deep literature integration to ensure scientific rigor and novelty.
+Archimedes is an open-source autonomous research framework. You give it a prompt and a mode — it runs a research loop end to end and produces a **reproducible trace you can verify**: literature map, experiment plan, working code, metrics, failures, and a draft write-up alongside the full session log.
 
-## 🚀 Features
+> **Design principle:** Archimedes produces traces a human verifies, not finished papers. Transparency, steerability, and trustworthiness come first.
 
-- **🧠 Autonomous Ideation Loop**: Brainstorms novel ML architectures and validates them against SOTA literature using Semantic Scholar and ArXiv.
-- **📋 Rigorous Planning**: Architects detailed experimental plans including baselines, ablation studies, and empirical success criteria.
-- **🔬 Surgical Implementation**: A Senior ML Engineering agent implements complex neural networks using `uv` for deterministic environment management.
-- **🔍 Structural Code Intelligence**: Integrated `code-review-graph` allows agents to perform AST-based analysis, understand blast radius, and identify test gaps without reading entire files.
-- **🔄 Adaptive Principal Investigator**: A Stage Reflector agent analyzes training logs and metrics to adapt the research plan in real-time based on empirical progress.
-- **📝 Manuscript Generation**: A specialized Summary Agent synthesizes the "Research Vault" (methodology and results) into a publication-ready Markdown/LaTeX paper.
+---
 
-## 🛠️ Quick Start
+## The three modes
+
+| Mode | What it does |
+|------|-------------|
+| **`orchestrated`** (novelty) | Generates a novel research idea, gates it against the citation graph, plans and implements experiments stage by stage, reflects on results, drafts a manuscript. |
+| **`simple`** (replication) | Skips planning overhead — hands the prompt directly to the Claude Code agent. Best for narrow coding tasks or strict paper replication. |
+| **`evolve`** | AlphaEvolve/FunSearch-style evolutionary search: samples a FAISS database of past code variants, mutates the best one, keeps what improves the empirical metric. |
+
+---
+
+## Quick start
 
 ### Prerequisites
 
-1. **Claude Code CLI** installed:
+1. **Claude Code CLI:**
    ```bash
    npm install -g @anthropic-ai/claude-code
    ```
 
-2. **API Keys** in a `.env` file:
+2. **API keys** in `.env` (copy `.env.example`):
    ```bash
    ANTHROPIC_API_KEY="your_key"
    OPENROUTER_API_KEY="your_key"
-   SEMANTIC_SCHOLAR_API_KEY="your_key" # Optional but recommended
+   SEMANTIC_SCHOLAR_API_KEY="your_key"   # optional — raises rate limits
    ```
 
-### Installation
+### Install
 
 ```bash
-git clone https://github.com/ris3abh/ai-research-engineer.git
-cd ai_research_engineer
+git clone https://github.com/archimedes-run/ai-research-engineer.git
+cd ai-research-engineer
 uv sync --extra dev
 ```
 
-### Basic Usage
-
-**Important**: The `--mode orchestrated` flag initiates the full multi-agent research lifecycle.
+### Run
 
 ```bash
-# Start a full research project
-uv run ai-research-engineer "Investigate Kolmogorov-Arnold Networks for weather forecasting" --mode orchestrated
+# Full multi-agent pipeline (novelty mode)
+uv run ai-research-engineer "Investigate sparse mixture-of-experts routing in low-resource settings" \
+  --mode orchestrated
+
+# Simple / replication
+uv run ai-research-engineer "Replicate the WaveletKAN benchmark" \
+  --mode simple --research-mode replication
+
+# Evolutionary search
+uv run ai-research-engineer "Maximise accuracy on CIFAR-10 under 1M parameters" \
+  --mode evolve
 ```
 
-## 🏗️ The Multi-Agent Workflow
-
-1. **Ideation Phase**: Idea Generator and Novelty Scorer survey literature to find gaps and propose a unique hypothesis.
-2. **Planning Phase**: Plan Maker translates the hypothesis into a milestone-based experimental design.
-3. **Execution Phase**: The Implementation Loop (Coding + Review Agents) builds the architecture and runs benchmarks.
-4. **Reflection Phase**: The PI agent reviews metrics and "reflects" to adapt the next stages of research.
-5. **Synthesis Phase**: Summary Agent writes the final manuscript using the project's internal Knowledge Base.
-
-## 📂 The Research Vault (Workspace Structure)
-
-Every project creates a structured sandbox to maintain context amnesia protection:
-
-- **`knowledge_base/`**: Synthesized research notes and architecture blueprints (`01_literature_review.md`, `02_methodology_specs.md`).
-- **`literature/`**: Raw full-text PDFs and HTML sources from ArXiv.
-- **`workflow/`**: Implementation scripts, training loops, and neural network modules.
-- **`results/`**: Metric logs, model checkpoints (`.pt`), and comparative plots.
-
-## 🧪 Technical Notes
-
-### Context Window Management
-
-The framework uses aggressive **LLM-based Event Compression**. When a training session exceeds 40 events, the system automatically summarizes the history and replaces it with a single context event, preserving the total window under 1M tokens even for complex, multi-day runs.
-
-### Structural Intelligence
-
-Unlike standard agents, the `review_agent` uses `code-review-graph` to perform **AST surgical inspection**. It identifies specific function signatures and dependency chains to verify mathematical correctness without exhausting the context window on raw code.
-
-## 🤝 Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for style guidelines and the conventional commit protocol.
+Output lands in `./agentic_output/` by default. Use `--working-dir <path>` to pin a custom location.
 
 ---
 
-Copyright © 2026 AI Research Engineer Project. Licensed under MIT.
+## Architecture
+
+Archimedes is a graph of specialised LLM agents — each with a narrow job, a strict prompt, and a defined handoff — wired together into a workflow that mirrors how a research lab operates.
+
+### Agent graph (orchestrated mode)
+
+```
+ai_research_engineer_workflow
+├── ideation_loop
+│   ├── idea_generator_agent        → proposes hypothesis
+│   ├── novelty_scorer_agent        → checks against ArXiv / Semantic Scholar
+│   └── [review → loop or advance]
+├── high_level_planning_loop
+│   ├── plan_maker_agent            → milestone-based experiment design
+│   ├── plan_reviewer_agent         → critique + iterate
+│   └── high_level_plan_parser      → machine-readable stage list
+├── stage_orchestrator              → feeds one stage at a time
+│   └── implementation_loop
+│       ├── [Claude Code agent]     → writes & refines code
+│       ├── success_criteria_checker → verifies empirical criteria
+│       └── stage_reflector         → rewrites remaining stages from evidence
+└── paper_writing_loop
+    ├── paper_writer_agent          → synthesises knowledge base → manuscript
+    └── paper_reviewer_agent        → review + iterate
+```
+
+### The Research Vault (output layout)
+
+```
+agentic_output/
+├── knowledge_base/   — synthesised literature notes and architecture blueprints
+├── literature/       — raw full-text sources (ArXiv, Semantic Scholar)
+├── workflow/         — implementation code, training loops, model modules
+├── results/          — metric logs, checkpoints, comparison plots
+└── manuscript/       — LaTeX source and compiled PDF draft
+```
+
+### Evolve mode
+
+`EvolutionLoopAgent` samples parent nodes from a FAISS vector database, mutates via Claude Code, runs the result, reads the score from `results.json`, and commits the new node back. `BestSnapshotManager` tracks the all-time best so regressions never overwrite it.
+
+### Toolbelt
+
+| Tool module | What it does |
+|---|---|
+| `research_ops` | Semantic Scholar impact-filtering, multi-source paper search, ArXiv full-text |
+| `code_graph_ops` | Graphify-based AST-level codebase queries (claimed 71.5× token reduction vs. reading raw source) |
+| `data_ops` | DuckDB SQL over Parquet — no in-memory dataset loading |
+| `latex_ops` | Compile `.tex` → PDF, surface syntax errors |
+| `file_ops` / `web_ops` | Sandboxed file I/O and HTTP fetch, path-validated to working directory |
+
+### Context window management
+
+Once a session exceeds **40 events**, LLM-based event compression summarises history into a single context event, keeping long runs comfortably under a 1 M-token window.
+
+### Python API
+
+```python
+from ai_research_engineer import AIEngineer
+
+engineer = AIEngineer(
+    agent_type="adk",           # "adk" | "claude_code" | "evolve"
+    research_mode="novelty",    # "novelty" | "replication"
+    domain="ai_ml",
+    working_dir="./my_run",
+)
+
+# Synchronous
+result = engineer.run("Investigate sparse MoE routing")
+print(result.response)
+
+# Streaming (async)
+async for event in engineer.run_async(prompt, stream=True):
+    print(event)
+```
+
+---
+
+## Research domains
+
+`--domain` injects domain-specific planning and review heuristics into every agent:
+
+| Flag | Domain |
+|---|---|
+| `aiml` | AI / Machine Learning |
+| `finance` | Quantitative finance |
+| `bioinformatics` | Computational biology |
+| `algorithms` | Algorithm design & complexity |
+| `physics` | Theoretical & computational physics |
+
+---
+
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) for the full plan. Current focus: **Phase 0 (Foundation)** and **Phase 1 (Stabilise the core)**.
+
+---
+
+## Contributing
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md), pick a [`good first issue`](https://github.com/archimedes-run/ai-research-engineer/labels/good%20first%20issue), and open a draft PR early. For bigger ideas, open a `design` issue first.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).

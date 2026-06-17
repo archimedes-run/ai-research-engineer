@@ -1,0 +1,41 @@
+name: Good First Issue
+description: A well-scoped task for new contributors.
+labels: ["good first issue"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to seed a well-scoped, self-contained task for a first-time contributor.
+
+  - type: textarea
+    id: task
+    attributes:
+      label: Task description
+      description: What needs to be done? Keep it to one clear, bounded unit of work.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Context & files
+      description: Which files are involved? What should the contributor read first?
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: How do we know when this is done?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Backend
+        - Frontend
+        - Docs
