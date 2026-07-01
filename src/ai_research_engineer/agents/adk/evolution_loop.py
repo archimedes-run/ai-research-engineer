@@ -6,7 +6,6 @@ sampling past code nodes, mutating them via Claude, and storing the results.
 
 import json
 import logging
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List
@@ -21,6 +20,9 @@ from ai_research_engineer.evolve.utils.structures import Node
 from ai_research_engineer.evolve.utils.best_snapshot import BestSnapshotManager
 
 logger = logging.getLogger(__name__)
+
+# Single source of truth for the file the evaluator runs and Claude edits.
+PROGRAM_FILENAME = "initial_program.py"
 
 class EvolutionLoopAgent(BaseAgent):
     """
@@ -82,15 +84,38 @@ class EvolutionLoopAgent(BaseAgent):
                 logger.error(f"[EvolutionLoop] Failed to parse results.json: {e}")
         return 0.0
 
+    def _program_path(self, working_dir: Path) -> Path:
+        """Return the canonical path of the evaluator script."""
+        return working_dir / "workflow" / PROGRAM_FILENAME
+
     def _read_current_code(self, working_dir: Path) -> str:
-        """Helper to extract the current evaluator code."""
-        code_file = working_dir / "workflow" / "code" # Assuming generic naming, adjust if needed (e.g. train.py)
-        if not code_file.exists():
-            code_file = working_dir / "workflow" / "initial_program.py"
-        
-        if code_file.exists():
-            return code_file.read_text(encoding="utf-8")
-        return ""
+        """Read the evaluator script from the canonical path."""
+        path = self._program_path(working_dir)
+        return path.read_text(encoding="utf-8") if path.exists() else ""
+
+    def _materialize_parent(self, parent: Node, working_dir: Path) -> None:
+        """Write the parent's code to disk so Claude mutates the correct baseline."""
+        target = self._program_path(working_dir)
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        if parent.code:
+            target.write_text(parent.code, encoding="utf-8")
+            logger.info(f"[EvolutionLoop] Restored parent '{parent.name}' to {target}")
+            return
+
+        # Fallback: copy the code file from the most recent best snapshot step dir.
+        # BestSnapshotManager stores code at best_dir/<step_name>/code (no extension).
+        snapshot_base = self._best_snapshot.best_dir
+        if snapshot_base and snapshot_base.exists():
+            step_dirs = sorted(snapshot_base.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)
+            for step_dir in step_dirs:
+                snapshot_file = step_dir / "code"
+                if snapshot_file.exists():
+                    target.write_text(snapshot_file.read_text(encoding="utf-8"), encoding="utf-8")
+                    logger.info(f"[EvolutionLoop] Restored parent from snapshot: {snapshot_file}")
+                    return
+
+        logger.warning(f"[EvolutionLoop] No code available for parent '{parent.name}'; mutating whatever is on disk.")
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """
@@ -154,20 +179,25 @@ class EvolutionLoopAgent(BaseAgent):
                 partial=False,
             )
 
-            # 2. Inject Mutation Prompt to Claude's State
+            # 2. Restore parent program to disk so Claude mutates the correct baseline
+            self._materialize_parent(parent, working_dir)
+            program_path = self._program_path(working_dir)
+
+            # 3. Inject Mutation Prompt to Claude's State
             state["implementation_task"] = (
                 f"EVOLUTIONARY OPTIMIZATION TASK - GENERATION {gen}\n\n"
-                f"You are optimizing the current script to improve its empirical score.\n"
-                f"The parent code achieved a score of {parent.score}.\n\n"
+                f"The parent program has been restored to: {program_path}\n"
+                f"Edit that file in place to improve its empirical score.\n\n"
+                f"Parent score: {parent.score}\n"
                 f"Parent Motivation: {parent.motivation}\n"
                 f"Parent Analysis: {parent.analysis}\n\n"
                 f"Your task:\n"
-                f"1. Surgically edit the code to improve performance (tune hyperparams, change optimizers, etc.).\n"
+                f"1. Surgically edit {program_path.name} to improve performance (tune hyperparams, change optimizers, etc.).\n"
                 f"2. Run the `eval.sh` script to test your changes.\n"
                 f"3. Ensure the new score is written to `results.json`."
             )
 
-            # 3. Run Claude (Mutation)
+            # 5. Run Claude (Mutation)
             try:
                 async for event in self._coding_agent.run_async(ctx):
                     yield event
@@ -175,11 +205,11 @@ class EvolutionLoopAgent(BaseAgent):
                 logger.error(f"[EvolutionLoop] Claude mutation failed on Gen {gen}: {e}")
                 continue
 
-            # 4. Extract Results
+            # 6. Extract Results
             new_code = self._read_current_code(working_dir)
             new_score = self._read_current_score(working_dir)
 
-            # 5. Run Analyzer (Stage Reflector acting as Analyzer)
+            # 7. Run Analyzer (Stage Reflector acting as Analyzer)
             # We spoof the state so the reflector evaluates the mutation
             state["high_level_stages"] = [{"title": f"Generation {gen}", "description": "Evolutionary mutation step"}]
             state["stage_implementations"] = [{"implementation_summary": f"Parent score: {parent.score}, New score: {new_score}"}]
@@ -198,7 +228,7 @@ class EvolutionLoopAgent(BaseAgent):
                 logger.warning(f"[EvolutionLoop] Analyzer failed on Gen {gen}: {e}")
                 analyzer_feedback = f"Analysis failed: {e}"
 
-            # 6. Save new Node
+            # 8. Save new Node
             new_node = Node(
                 name=f"Generation_{gen}",
                 parent=[parent.id] if parent.id is not None else [],
