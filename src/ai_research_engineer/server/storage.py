@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 import uuid
 from datetime import datetime
@@ -7,6 +8,13 @@ from typing import Any, Dict, List, Optional
 
 
 _lock = threading.Lock()
+
+
+def _atomic_write(path: Path, data: str) -> None:
+    """Write *data* to *path* atomically via a sibling temp file."""
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(data, encoding="utf-8")
+    os.replace(tmp, path)
 
 
 class Storage:
@@ -29,7 +37,7 @@ class Storage:
         with _lock:
             data = json.loads(cls.COUNTER_FILE.read_text())
             data["count"] += 1
-            cls.COUNTER_FILE.write_text(json.dumps(data))
+            _atomic_write(cls.COUNTER_FILE, json.dumps(data))
         return f"ARC-{datetime.now().year}-{data['count']:03d}"
 
     @classmethod
@@ -39,27 +47,36 @@ class Storage:
         with _lock:
             submissions = json.loads(cls.SUBMISSIONS_FILE.read_text())
             submissions.append(data)
-            cls.SUBMISSIONS_FILE.write_text(json.dumps(submissions, indent=2))
+            _atomic_write(cls.SUBMISSIONS_FILE, json.dumps(submissions, indent=2))
         return data
 
     @classmethod
-    def save_session(cls, session: Dict):
+    def save_session(cls, session: Dict) -> None:
         path = cls.SESSIONS_DIR / f"{session['session_id']}.json"
-        path.write_text(json.dumps(session, indent=2))
+        with _lock:
+            _atomic_write(path, json.dumps(session, indent=2))
 
     @classmethod
     def get_session(cls, session_id: str) -> Optional[Dict]:
         path = cls.SESSIONS_DIR / f"{session_id}.json"
-        if not path.exists():
-            return None
-        return json.loads(path.read_text())
+        with _lock:
+            if not path.exists():
+                return None
+            return json.loads(path.read_text())
 
     @classmethod
     def list_sessions(cls) -> List[Dict]:
         sessions = []
-        for path in sorted(cls.SESSIONS_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True):
+        with _lock:
+            paths = sorted(
+                cls.SESSIONS_DIR.glob("*.json"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+        for path in paths:
             try:
-                data = json.loads(path.read_text())
+                with _lock:
+                    data = json.loads(path.read_text())
                 # Strip heavy events list from index
                 sessions.append({k: v for k, v in data.items() if k != "events"})
             except Exception:
@@ -67,8 +84,11 @@ class Storage:
         return sessions
 
     @classmethod
-    def update_session(cls, session_id: str, updates: Dict):
-        session = cls.get_session(session_id)
-        if session:
+    def update_session(cls, session_id: str, updates: Dict) -> None:
+        with _lock:
+            path = cls.SESSIONS_DIR / f"{session_id}.json"
+            if not path.exists():
+                return
+            session = json.loads(path.read_text())
             session.update(updates)
-            cls.save_session(session)
+            _atomic_write(path, json.dumps(session, indent=2))
