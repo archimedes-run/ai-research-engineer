@@ -1,37 +1,34 @@
 """
 Unit tests for tools module.
 
-Tests all file operations, web fetch, database operations, 
-academic research tools (Semantic Scholar, ArXiv, findpapers), 
+Tests all file operations, web fetch, database operations,
+academic research tools (Semantic Scholar, ArXiv, findpapers),
 and code graph functionality (Graphify).
 Includes security boundary validation and edge cases.
 """
 
 import base64
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
 from ai_research_engineer.tools import (
+    build_citation_graph,
+    build_knowledge_graph,
+    compile_latex_to_pdf,
     directory_tree,
     fetch_url,
     get_file_info,
+    get_paper_details,
     list_directory,
+    omni_search_papers,
+    query_code_structure,
+    query_duckdb,
     read_file,
     read_media_file,
     search_files,
-    query_duckdb,
-    get_schema,
     semantic_search_papers,
-    get_paper_details,
-    omni_search_papers,
-    build_citation_graph,
-    build_knowledge_graph,
-    get_code_context,
-    query_code_structure,
-    compile_latex_to_pdf,
 )
 
 
@@ -73,6 +70,7 @@ def temp_workspace(tmp_path):
 # ==========================================
 # FILE OPS TESTS
 # ==========================================
+
 
 class TestReadFile:
     """Tests for read_file function."""
@@ -175,12 +173,67 @@ class TestFetchUrl:
     """Tests for fetch_url function."""
 
     @patch("ai_research_engineer.tools.web_ops.requests.get")
-    def test_fetch_url_success(self, mock_get):
+    @patch("ai_research_engineer.tools.web_ops.socket.getaddrinfo")
+    def test_fetch_url_success(self, mock_dns, mock_get):
+        import socket
+
+        # Resolve to a public address so SSRF check passes
+        mock_dns.return_value = [(socket.AF_INET, None, None, "", ("93.184.216.34", 0))]
         mock_response = Mock()
         mock_response.text = "Success content"
+        mock_response.is_redirect = False
+        mock_response.raise_for_status = Mock()
         mock_get.return_value = mock_response
         result = fetch_url("https://example.com")
         assert result == "Success content"
+
+    @patch("ai_research_engineer.tools.web_ops.socket.getaddrinfo")
+    def test_fetch_url_blocks_loopback(self, mock_dns):
+        import socket
+
+        mock_dns.return_value = [(socket.AF_INET, None, None, "", ("127.0.0.1", 0))]
+        result = fetch_url("http://localhost/admin")
+        assert "Error" in result
+        assert "blocked" in result.lower()
+
+    @patch("ai_research_engineer.tools.web_ops.socket.getaddrinfo")
+    def test_fetch_url_blocks_metadata_endpoint(self, mock_dns):
+        import socket
+
+        # AWS/GCP metadata IP
+        mock_dns.return_value = [(socket.AF_INET, None, None, "", ("169.254.169.254", 0))]
+        result = fetch_url("http://169.254.169.254/latest/meta-data/")
+        assert "Error" in result
+        assert "blocked" in result.lower()
+
+    @patch("ai_research_engineer.tools.web_ops.socket.getaddrinfo")
+    def test_fetch_url_blocks_private_range(self, mock_dns):
+        import socket
+
+        mock_dns.return_value = [(socket.AF_INET, None, None, "", ("192.168.1.1", 0))]
+        result = fetch_url("http://192.168.1.1/internal")
+        assert "Error" in result
+        assert "blocked" in result.lower()
+
+    @patch("ai_research_engineer.tools.web_ops.requests.get")
+    @patch("ai_research_engineer.tools.web_ops.socket.getaddrinfo")
+    def test_fetch_url_redirect_to_private_blocked(self, mock_dns, mock_get):
+        """A public URL that 302-redirects to a private address must be blocked."""
+        import socket
+
+        # First DNS call is for the public host (safe), second for the redirect target
+        public_addr = [(socket.AF_INET, None, None, "", ("93.184.216.34", 0))]
+        private_addr = [(socket.AF_INET, None, None, "", ("10.0.0.1", 0))]
+        mock_dns.side_effect = [public_addr, private_addr]
+
+        redirect_resp = Mock()
+        redirect_resp.is_redirect = True
+        redirect_resp.headers = {"Location": "http://10.0.0.1/secret"}
+        mock_get.return_value = redirect_resp
+
+        result = fetch_url("https://example.com/redirect")
+        assert "Error" in result
+        assert "blocked" in result.lower()
 
 
 class TestSecurityValidation:
@@ -207,12 +260,13 @@ class TestSecurityValidation:
 # DATA OPS TESTS (DuckDB)
 # ==========================================
 
+
 class TestDataOps:
     """Tests for DuckDB data operations."""
 
     @patch("ai_research_engineer.tools.data_ops.duckdb.connect")
     def test_query_duckdb_success(self, mock_connect, temp_workspace):
-        """Test valid SELECT query."""
+        """A plain SELECT passes validation and is forwarded to DuckDB."""
         mock_con = MagicMock()
         mock_df = MagicMock()
         mock_df.to_markdown.return_value = "| name | value |\n|---|---|\n| alice | 100 |"
@@ -220,26 +274,59 @@ class TestDataOps:
         mock_con.execute.return_value.fetchdf.return_value = mock_df
         mock_connect.return_value = mock_con
 
-        result = query_duckdb("SELECT * FROM data.csv", str(temp_workspace))
-        
-        assert "alice" in result
-        mock_con.execute.assert_called_once()
-        # Verify LIMIT 1000 was appended
-        assert "LIMIT 1000" in mock_con.execute.call_args[0][0]
+        result = query_duckdb("SELECT * FROM 'data.csv'", str(temp_workspace))
 
-    def test_query_duckdb_forbidden_keywords(self, temp_workspace):
-        """Test SQL injection prevention."""
+        assert "alice" in result
+        # The SELECT call itself (not the SET calls) must contain LIMIT
+        select_calls = [call for call in mock_con.execute.call_args_list if "SELECT" in str(call).upper()]
+        assert any("LIMIT 1000" in str(c) for c in select_calls)
+
+    def test_query_duckdb_drop_rejected(self, temp_workspace):
         result = query_duckdb("DROP TABLE data", str(temp_workspace))
         assert "Error" in result
-        assert "Forbidden" in result
 
-        result2 = query_duckdb("DELETE FROM data WHERE id=1", str(temp_workspace))
-        assert "Error" in result2
+    def test_query_duckdb_delete_rejected(self, temp_workspace):
+        result = query_duckdb("DELETE FROM data WHERE id=1", str(temp_workspace))
+        assert "Error" in result
+
+    def test_query_duckdb_copy_to_rejected(self, temp_workspace):
+        """COPY ... TO is a data-exfiltration vector and must be rejected."""
+        result = query_duckdb("COPY data TO '/tmp/out.csv'", str(temp_workspace))
+        assert "Error" in result
+
+    def test_query_duckdb_attach_rejected(self, temp_workspace):
+        result = query_duckdb("ATTACH '/etc/shadow' AS s", str(temp_workspace))
+        assert "Error" in result
+
+    def test_query_duckdb_absolute_path_rejected(self, temp_workspace):
+        """Absolute file paths in query strings are rejected."""
+        result = query_duckdb("SELECT * FROM '/etc/passwd'", str(temp_workspace))
+        assert "Error" in result
+
+    def test_query_duckdb_column_with_create_not_rejected(self, temp_workspace):
+        """
+        Regression: a WHERE clause filtering on a value that contains 'CREATE'
+        (e.g. column_name = 'date_created') must NOT be rejected.
+        The old substring blocklist would have false-positived here.
+        """
+        from ai_research_engineer.tools.data_ops import _validate_query
+
+        # The first keyword is SELECT — validator must accept this.
+        err = _validate_query("SELECT * FROM t WHERE col = 'date_created' LIMIT 5")
+        assert err is None, f"Unexpected rejection: {err}"
+
+    def test_query_duckdb_with_clause_allowed(self, temp_workspace):
+        """WITH ... SELECT is a valid read-only construct."""
+        from ai_research_engineer.tools.data_ops import _validate_query
+
+        err = _validate_query("WITH cte AS (SELECT 1 AS x) SELECT * FROM cte")
+        assert err is None, f"Unexpected rejection: {err}"
 
 
 # ==========================================
 # SEMANTIC SCHOLAR OPS TESTS
 # ==========================================
+
 
 class TestSemanticScholarOps:
     """Tests for Semantic Scholar integrations."""
@@ -247,17 +334,23 @@ class TestSemanticScholarOps:
     @patch("ai_research_engineer.tools.semantic_scholar_ops.sch")
     def test_semantic_search_papers(self, mock_sch, temp_workspace):
         mock_paper = MagicMock(
-            paperId="123", title="AI Test", year=2024, citationCount=50, 
-            abstract="Test abstract", url="http://test.com", citationStyles=None, authors=[]
+            paperId="123",
+            title="AI Test",
+            year=2024,
+            citationCount=50,
+            abstract="Test abstract",
+            url="http://test.com",
+            citationStyles=None,
+            authors=[],
         )
         mock_sch.search_paper.return_value = [mock_paper]
 
         result = semantic_search_papers("AI testing", min_citations=10, limit=1, working_dir=str(temp_workspace))
         parsed = json.loads(result)
-        
+
         assert len(parsed) == 1
         assert parsed[0]["title"] == "AI Test"
-        
+
         # Verify tracking file was created
         track_file = temp_workspace / ".tracked_papers.json"
         assert track_file.exists()
@@ -265,14 +358,23 @@ class TestSemanticScholarOps:
     @patch("ai_research_engineer.tools.semantic_scholar_ops.sch")
     def test_get_paper_details(self, mock_sch, temp_workspace):
         mock_paper = MagicMock(
-            paperId="123", title="Detailed Paper", year=2024, citationCount=10,
-            referenceCount=5, influentialCitationCount=2, abstract="Abstract", tldr=None, authors=[], url="", citationStyles=None
+            paperId="123",
+            title="Detailed Paper",
+            year=2024,
+            citationCount=10,
+            referenceCount=5,
+            influentialCitationCount=2,
+            abstract="Abstract",
+            tldr=None,
+            authors=[],
+            url="",
+            citationStyles=None,
         )
         mock_sch.get_paper.return_value = mock_paper
 
         result = get_paper_details("123", str(temp_workspace))
         parsed = json.loads(result)
-        
+
         assert parsed["title"] == "Detailed Paper"
         assert parsed["references"] == 5
 
@@ -281,6 +383,7 @@ class TestSemanticScholarOps:
 # RESEARCH OPS TESTS (ArXiv / findpapers)
 # ==========================================
 
+
 class TestResearchOps:
     """Tests for advanced research tools."""
 
@@ -288,13 +391,9 @@ class TestResearchOps:
         # Mock Semantic Scholar response for omni search
         mock_author = MagicMock()
         mock_author.name = "Author A"
-        
+
         mock_paper = MagicMock(
-            title="Omni Test Paper",
-            year=2025,
-            abstract="Omni abstract",
-            venue="arXiv",
-            url="http://arxiv.org/123"
+            title="Omni Test Paper", year=2025, abstract="Omni abstract", venue="arXiv", url="http://arxiv.org/123"
         )
         mock_paper.authors = [mock_author]
         mock_search_paper.return_value = [mock_paper]
@@ -314,11 +413,11 @@ class TestResearchOps:
         mock_sch.get_paper.return_value = mock_paper
 
         result = build_citation_graph("123", str(temp_workspace))
-        
+
         assert "Citation Graph: Root Paper" in result
         assert "Ancestor 1" in result
         assert "Descendant 1" in result
-        
+
         # Verify it saved to knowledge_base
         kb_file = temp_workspace / "knowledge_base" / "citation_graph_123.md"
         assert kb_file.exists()
@@ -327,6 +426,7 @@ class TestResearchOps:
 # ==========================================
 # CODE GRAPH OPS TESTS (Graphify)
 # ==========================================
+
 
 class TestCodeGraphOps:
     """Tests for Graphify AST codebase analysis."""
@@ -337,17 +437,19 @@ class TestCodeGraphOps:
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_run.return_value = mock_result
-        
+
         # Fake the graphify output file so the function thinks it succeeded
         out_dir = temp_workspace / "graphify-out"
         out_dir.mkdir()
         (out_dir / "GRAPH_REPORT.md").write_text("Graph Report")
 
         result = build_knowledge_graph(str(temp_workspace))
-        
+
         assert "Graph built successfully" in result
         assert "CRITICAL" in result
-        mock_run.assert_called_with(["graphify", "--no-viz"], cwd=str(temp_workspace), capture_output=True, text=True, check=False)
+        mock_run.assert_called_with(
+            ["graphify", "--no-viz"], cwd=str(temp_workspace), capture_output=True, text=True, check=False
+        )
 
     @patch("ai_research_engineer.tools.code_graph_ops.subprocess.run")
     def test_build_knowledge_graph_failure(self, mock_run, temp_workspace):
@@ -369,7 +471,7 @@ class TestCodeGraphOps:
         mock_run.return_value = mock_result
 
         result = query_code_structure("Path between", "ModelA and ModelB", str(temp_workspace))
-        
+
         assert "Path traces" in result
         # Verify it used the 'path' command due to the 'and' keyword
         args = mock_run.call_args[0][0]
@@ -381,6 +483,7 @@ class TestCodeGraphOps:
 # ==========================================
 # LATEX OPS TESTS
 # ==========================================
+
 
 class TestLatexOps:
     """Tests for LaTeX compilation tool."""
