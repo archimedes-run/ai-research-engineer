@@ -346,6 +346,17 @@ class AIEngineer:
         else:
             logger.warning(f"Could not find main .tex file for template {self.config.template}")
 
+    def _build_initial_state(self, message: str) -> Dict[str, Any]:
+        """Build the canonical initial state dict for a run."""
+        state: Dict[str, Any] = {
+            "original_user_input": message,
+            "latest_user_input": message,
+            "working_dir": str(self.working_dir),
+        }
+        if self.config.agent_type == "claude_code":
+            state["implementation_task"] = message
+        return state
+
     async def run_async(
         self,
         message: str,
@@ -378,22 +389,15 @@ class AIEngineer:
             # Set up agent if not already done
             await self._setup_agent()
 
-            # Initialize session state EARLY before any agent execution
-            # Get the session from session_service to ensure we're modifying the right instance
+            # Seed session state before runner sees the first message
             app_name = self.app.name if self.app else "ai_research_engineer"
             session = await self.session_service.get_session(
                 app_name=app_name, user_id="default_user", session_id=self.session_id
             )
-
-            # Set state variables (state is mutable, changes persist automatically)
-            session.state["original_user_input"] = message
-            session.state["latest_user_input"] = message
-            # For Claude Code agent, also set implementation_task
-            if self.config.agent_type == "claude_code":
-                session.state["implementation_task"] = message
+            for k, v in self._build_initial_state(message).items():
+                session.state[k] = v
 
             logger.info(f"[API] Set session state keys: {list(session.state.keys())}")
-            logger.info(f"[API] implementation_task = {session.state.get('implementation_task', 'NOT SET')[:50]}...")
 
             # Save files if provided
             file_info = self.save_files(files) if files else None
@@ -425,19 +429,11 @@ class AIEngineer:
         responses = []
 
         try:
-            # Pass initial state to runner via state_delta
-            initial_state = {
-                "original_user_input": prompt,
-                "latest_user_input": prompt,
-            }
-            if self.config.agent_type == "claude_code":
-                initial_state["implementation_task"] = prompt
-
             async for event in self.runner.run_async(
                 user_id="default_user",
                 session_id=self.session_id,
                 new_message=types.Content(role="user", parts=[types.Part(text=prompt)]),
-                state_delta=initial_state,
+                state_delta=self._build_initial_state(prompt),
             ):
                 event_count += 1
 
@@ -550,19 +546,11 @@ class AIEngineer:
         event_count = 0
 
         try:
-            # Pass initial state to runner via state_delta
-            initial_state = {
-                "original_user_input": prompt,
-                "latest_user_input": prompt,
-            }
-            if self.config.agent_type == "claude_code":
-                initial_state["implementation_task"] = prompt
-
             async for event in self.runner.run_async(
                 user_id="default_user",
                 session_id=self.session_id,
                 new_message=types.Content(role="user", parts=[types.Part(text=prompt)]),
-                state_delta=initial_state,
+                state_delta=self._build_initial_state(prompt),
             ):
                 event_count += 1
 
