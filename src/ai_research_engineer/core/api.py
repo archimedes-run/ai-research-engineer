@@ -49,7 +49,7 @@ class SessionConfig:
     auto_cleanup: bool = True
     template: str = "NeurReps_2024_Template"
     research_mode: str = "novelty"  # Added research_mode to config
-    domain: str = "ai_ml"  # Added domain to config
+    domain: str = "aiml"  # Added domain to config
 
 
 @dataclass
@@ -107,7 +107,7 @@ class AIEngineer:
         auto_cleanup: Optional[bool] = None,
         template: str = "NeurReps_2024_Template",
         research_mode: str = "novelty",
-        domain: str = "ai_ml"
+        domain: str = "aiml"
     ):
         """Initialize AI Research Engineer core with configuration."""
         # Generate session ID

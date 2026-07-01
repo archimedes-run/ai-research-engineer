@@ -128,7 +128,7 @@ from ai_research_engineer import AIEngineer
 engineer = AIEngineer(
     agent_type="adk",           # "adk" | "claude_code" | "evolve"
     research_mode="novelty",    # "novelty" | "replication"
-    domain="ai_ml",
+    domain="aiml",
     working_dir="./my_run",
 )
 

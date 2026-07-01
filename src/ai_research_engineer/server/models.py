@@ -15,6 +15,6 @@ class SubmissionRequest(BaseModel):
 class RunSessionRequest(BaseModel):
     topic: str
     agent_type: str = "adk"
-    domain: str = "ai_ml"
+    domain: str = "aiml"
     research_mode: str = "novelty"
     template: str = "NeurReps_2024_Template"
