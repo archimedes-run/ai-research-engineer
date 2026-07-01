@@ -1,20 +1,80 @@
 import asyncio
 import json
 import logging
+import os
+import time
 import uuid
+from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import AsyncGenerator, Dict, List
+from typing import AsyncGenerator, Dict, List, Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.security import APIKeyHeader
 
 from ai_research_engineer.server.models import RunSessionRequest, SubmissionRequest
 from ai_research_engineer.server.storage import Storage
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+_API_TOKEN: Optional[str] = os.environ.get("ARCHIMEDES_API_TOKEN")
+_api_key_header = APIKeyHeader(name="X-API-Token", auto_error=False)
+
+if not _API_TOKEN:
+    logger.warning(
+        "ARCHIMEDES_API_TOKEN is not set. "
+        "POST /api/sessions and POST /api/submissions are unauthenticated."
+    )
+
+
+def _require_token(token: Optional[str] = Security(_api_key_header)) -> None:
+    """Raise 403 if a token is configured and the request does not match it."""
+    if _API_TOKEN and token != _API_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid or missing API token.")
+
+
+# ---------------------------------------------------------------------------
+# Per-IP rate limiting (token-bucket, in-process)
+# NOTE: a shared store (Redis, etc.) is required for multi-worker deployments.
+# ---------------------------------------------------------------------------
+
+_RATE_LIMIT_WINDOW = 60        # seconds
+_RATE_LIMIT_MAX_REQUESTS = 5   # per IP per window
+
+# ip -> deque of request timestamps
+_rate_buckets: Dict[str, deque] = {}
+
+
+def _check_rate_limit(ip: str) -> None:
+    """Raise 429 if the IP has exceeded the session-creation rate limit."""
+    now = time.monotonic()
+    bucket = _rate_buckets.setdefault(ip, deque())
+
+    # Evict timestamps outside the current window
+    while bucket and now - bucket[0] > _RATE_LIMIT_WINDOW:
+        bucket.popleft()
+
+    if len(bucket) >= _RATE_LIMIT_MAX_REQUESTS:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Rate limit exceeded: at most {_RATE_LIMIT_MAX_REQUESTS} session "
+                f"creations per {_RATE_LIMIT_WINDOW}s per IP."
+            ),
+        )
+    bucket.append(now)
+
+
+# ---------------------------------------------------------------------------
+# Application
+# ---------------------------------------------------------------------------
 
 # session_id → asyncio.Queue; present only while agent is running
 _active_sessions: Dict[str, asyncio.Queue] = {}
@@ -23,14 +83,25 @@ _active_sessions: Dict[str, asyncio.Queue] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Storage.init()
+    # Reconcile stale running sessions from before the last restart.
+    for session in Storage.list_sessions():
+        if session.get("status") == "running" and session["session_id"] not in _active_sessions:
+            Storage.update_session(session["session_id"], {"status": "interrupted"})
+            logger.warning(
+                "Marked stale session %s as interrupted on startup.", session["session_id"]
+            )
     yield
 
 
 app = FastAPI(title="AI Research Engineer API", lifespan=lifespan)
 
+# CORS: read allowed origins from env; default to localhost only.
+_raw_origins = os.environ.get("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000")
+_allowed_origins = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -42,7 +113,10 @@ async def health():
 
 
 @app.post("/api/submissions")
-async def create_submission(body: SubmissionRequest):
+async def create_submission(
+    body: SubmissionRequest,
+    _: None = Security(_require_token),
+):
     record = Storage.save_submission(body.model_dump())
     return {"id": record["id"], "status": "queued", "message": "Submission received. Research will begin soon."}
 
@@ -67,7 +141,16 @@ async def get_session(session_id: str):
 
 
 @app.post("/api/sessions")
-async def create_session(body: RunSessionRequest, background_tasks: BackgroundTasks):
+async def create_session(
+    request: Request,
+    body: RunSessionRequest,
+    background_tasks: BackgroundTasks,
+    _: None = Security(_require_token),
+):
+    # Rate limit by client IP
+    client_ip = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_ip)
+
     session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
     display_id = Storage.next_display_id()
 
@@ -137,6 +220,9 @@ async def stream_session(session_id: str):
     )
 
 
+_FLUSH_INTERVAL = 10  # persist events to storage every N new events
+
+
 async def _run_agent(
     session_id: str,
     topic: str,
@@ -151,6 +237,7 @@ async def _run_agent(
     working_dir = Storage.DATA_DIR / "runs" / session_id
     working_dir.mkdir(parents=True, exist_ok=True)
     events_log: List[Dict] = []
+    unflushed = 0
     start_time = datetime.now()
 
     try:
@@ -166,6 +253,12 @@ async def _run_agent(
         async for event in gen:
             await queue.put(event)
             events_log.append(event)
+            unflushed += 1
+
+            # Incremental flush so a crash mid-run doesn't lose everything
+            if unflushed >= _FLUSH_INTERVAL:
+                Storage.update_session(session_id, {"events": list(events_log)})
+                unflushed = 0
 
         duration = (datetime.now() - start_time).total_seconds()
         files_created = [
