@@ -1,8 +1,10 @@
 """
 File operation tools for ADK agents.
 
-All file operations are read-only and enforce working_dir sandboxing.
-Paths are validated to prevent access outside the working directory.
+Provides sandboxed read tools (read_file, read_media_file, list_directory,
+directory_tree, search_files, get_file_info) and a write_file function that
+is restricted to non-executable extensions (.md, .txt, .json, .tex, .bib).
+All paths are validated against working_dir to prevent sandbox escapes.
 """
 
 import base64
