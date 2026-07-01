@@ -3,10 +3,12 @@ Database Operations using DuckDB.
 Allows agents to query Parquet files using SQL without loading data into memory.
 """
 
-import duckdb
 import logging
 import re
 from pathlib import Path
+
+import duckdb
+
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +22,7 @@ _FORBIDDEN_PATTERNS = [
     re.compile(r"\binstall\b", re.IGNORECASE),
     re.compile(r"\bload\b", re.IGNORECASE),
     re.compile(r"\bexport\b", re.IGNORECASE),
-    re.compile(r"\bset\b", re.IGNORECASE),   # blocks SET enable_external_access etc
+    re.compile(r"\bset\b", re.IGNORECASE),  # blocks SET enable_external_access etc
     re.compile(r"\bcreate\b", re.IGNORECASE),
     re.compile(r"\bdrop\b", re.IGNORECASE),
     re.compile(r"\bdelete\b", re.IGNORECASE),
@@ -55,10 +57,7 @@ def _validate_query(query: str) -> str | None:
 
     if not first_token or first_token.group(1).lower() not in _ALLOWED_LEADING_KEYWORDS:
         keyword = first_token.group(1) if first_token else "(empty)"
-        return (
-            f"Only SELECT / WITH / DESCRIBE / SHOW statements are permitted. "
-            f"Got: '{keyword}'"
-        )
+        return f"Only SELECT / WITH / DESCRIBE / SHOW statements are permitted. Got: '{keyword}'"
 
     # Secondary scan: reject forbidden statement keywords anywhere in the query.
     for pattern in _FORBIDDEN_PATTERNS:

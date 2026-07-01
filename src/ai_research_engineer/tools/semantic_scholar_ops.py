@@ -5,12 +5,13 @@ Implements deep paper discovery, author analysis, recommendations, and session t
 
 import json
 import logging
-import os      # FIXED: Added missing import
-import time    # FIXED: Added missing import
+import os  # FIXED: Added missing import
+import time  # FIXED: Added missing import
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional
 
 from semanticscholar import SemanticScholar
+
 
 logger = logging.getLogger(__name__)
 

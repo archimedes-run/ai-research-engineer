@@ -17,6 +17,7 @@ from fastapi.security import APIKeyHeader
 from ai_research_engineer.server.models import RunSessionRequest, SubmissionRequest
 from ai_research_engineer.server.storage import Storage
 
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
@@ -28,10 +29,7 @@ _API_TOKEN: Optional[str] = os.environ.get("ARCHIMEDES_API_TOKEN")
 _api_key_header = APIKeyHeader(name="X-API-Token", auto_error=False)
 
 if not _API_TOKEN:
-    logger.warning(
-        "ARCHIMEDES_API_TOKEN is not set. "
-        "POST /api/sessions and POST /api/submissions are unauthenticated."
-    )
+    logger.warning("ARCHIMEDES_API_TOKEN is not set. POST /api/sessions and POST /api/submissions are unauthenticated.")
 
 
 def _require_token(token: Optional[str] = Security(_api_key_header)) -> None:
@@ -45,8 +43,8 @@ def _require_token(token: Optional[str] = Security(_api_key_header)) -> None:
 # NOTE: a shared store (Redis, etc.) is required for multi-worker deployments.
 # ---------------------------------------------------------------------------
 
-_RATE_LIMIT_WINDOW = 60        # seconds
-_RATE_LIMIT_MAX_REQUESTS = 5   # per IP per window
+_RATE_LIMIT_WINDOW = 60  # seconds
+_RATE_LIMIT_MAX_REQUESTS = 5  # per IP per window
 
 # ip -> deque of request timestamps
 _rate_buckets: Dict[str, deque] = {}
@@ -87,9 +85,7 @@ async def lifespan(app: FastAPI):
     for session in Storage.list_sessions():
         if session.get("status") == "running" and session["session_id"] not in _active_sessions:
             Storage.update_session(session["session_id"], {"status": "interrupted"})
-            logger.warning(
-                "Marked stale session %s as interrupted on startup.", session["session_id"]
-            )
+            logger.warning("Marked stale session %s as interrupted on startup.", session["session_id"])
     yield
 
 
@@ -177,8 +173,13 @@ async def create_session(
 
     background_tasks.add_task(
         _run_agent,
-        session_id, body.topic, body.agent_type,
-        body.domain, body.research_mode, body.template, queue,
+        session_id,
+        body.topic,
+        body.agent_type,
+        body.domain,
+        body.research_mode,
+        body.template,
+        queue,
     )
 
     return {"session_id": session_id, "display_id": display_id}
@@ -266,24 +267,30 @@ async def _run_agent(
             for p in working_dir.rglob("*")
             if p.is_file() and not any(part.startswith(".") for part in p.parts)
         ]
-        Storage.update_session(session_id, {
-            "status": "completed",
-            "completed_at": datetime.now().isoformat(),
-            "duration": duration,
-            "events": events_log,
-            "files_created": files_created,
-        })
+        Storage.update_session(
+            session_id,
+            {
+                "status": "completed",
+                "completed_at": datetime.now().isoformat(),
+                "duration": duration,
+                "events": events_log,
+                "files_created": files_created,
+            },
+        )
 
     except Exception as e:
         logger.error(f"Session {session_id} failed: {e}", exc_info=True)
         err = {"type": "error", "content": str(e), "timestamp": datetime.now().strftime("%H:%M:%S")}
         await queue.put(err)
         events_log.append(err)
-        Storage.update_session(session_id, {
-            "status": "failed",
-            "completed_at": datetime.now().isoformat(),
-            "events": events_log,
-        })
+        Storage.update_session(
+            session_id,
+            {
+                "status": "failed",
+                "completed_at": datetime.now().isoformat(),
+                "events": events_log,
+            },
+        )
 
     finally:
         await queue.put(None)  # sentinel to close SSE connections

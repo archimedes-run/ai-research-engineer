@@ -6,9 +6,8 @@ sampling past code nodes, mutating them via Claude, and storing the results.
 
 import json
 import logging
-from datetime import datetime
 from pathlib import Path
-from typing import Any, AsyncGenerator, Dict, List
+from typing import Any, AsyncGenerator
 
 from google.adk.agents import BaseAgent, InvocationContext
 from google.adk.events import Event
@@ -16,19 +15,21 @@ from google.genai import types
 from pydantic import PrivateAttr
 
 from ai_research_engineer.evolve.database import Database
-from ai_research_engineer.evolve.utils.structures import Node
 from ai_research_engineer.evolve.utils.best_snapshot import BestSnapshotManager
+from ai_research_engineer.evolve.utils.structures import Node
+
 
 logger = logging.getLogger(__name__)
 
 # Single source of truth for the file the evaluator runs and Claude edits.
 PROGRAM_FILENAME = "initial_program.py"
 
+
 class EvolutionLoopAgent(BaseAgent):
     """
     Custom orchestrator that manages the AI Research Engineer Darwinian loop.
     This agent samples the FAISS database for a high-scoring past node,
-    feeds it to the Coding Agent for mutation, runs the evaluation, 
+    feeds it to the Coding Agent for mutation, runs the evaluation,
     and uses the Analyzer Agent to learn from the results.
 
     Parameters
@@ -129,14 +130,18 @@ class EvolutionLoopAgent(BaseAgent):
         """
         state = ctx.session.state
         working_dir = Path(state.get("working_dir", "./agentic_output"))
-        
+
         logger.info(f"[EvolutionLoop] Starting evolution for {self._max_generations} generations.")
 
         yield Event(
             author=self.name,
             content=types.Content(
                 role="model",
-                parts=[types.Part(text=f"\n\n🧬 **INITIALIZING EVOLUTION ENGINE**\nTargeting {self._max_generations} Generations.\n\n")]
+                parts=[
+                    types.Part(
+                        text=f"\n\n🧬 **INITIALIZING EVOLUTION ENGINE**\nTargeting {self._max_generations} Generations.\n\n"
+                    )
+                ],
             ),
             turn_complete=True,
         )
@@ -146,14 +151,14 @@ class EvolutionLoopAgent(BaseAgent):
             logger.info("[EvolutionLoop] DB empty. Bootstrapping Node 0 from baseline.")
             baseline_code = self._read_current_code(working_dir)
             baseline_score = self._read_current_score(working_dir)
-            
+
             node0 = Node(
                 name="Generation_0_Baseline",
                 motivation="Initial baseline seed program.",
                 code=baseline_code,
                 score=baseline_score,
                 results={"score": baseline_score},
-                analysis="Baseline initialized."
+                analysis="Baseline initialized.",
             )
             self._database.add(node0)
             self._best_snapshot.update_if_better(node0, "step_0_baseline", working_dir / "workflow")
@@ -161,11 +166,11 @@ class EvolutionLoopAgent(BaseAgent):
         # MAIN EVOLUTIONARY LOOP
         for gen in range(1, self._max_generations + 1):
             logger.info(f"[EvolutionLoop] === Generation {gen} ===")
-            
+
             # 1. Sample Parent
             parents = self._database.sample(n=1)
             parent = parents[0] if parents else None
-            
+
             if not parent:
                 logger.error("[EvolutionLoop] Failed to sample parent from DB.")
                 break
@@ -174,7 +179,11 @@ class EvolutionLoopAgent(BaseAgent):
                 author=self.name,
                 content=types.Content(
                     role="model",
-                    parts=[types.Part(text=f"\n\n🔄 **GENERATION {gen}**\nSampled Parent: {parent.name} (Score: {parent.score})\nMutating...\n\n")]
+                    parts=[
+                        types.Part(
+                            text=f"\n\n🔄 **GENERATION {gen}**\nSampled Parent: {parent.name} (Score: {parent.score})\nMutating...\n\n"
+                        )
+                    ],
                 ),
                 partial=False,
             )
@@ -212,15 +221,17 @@ class EvolutionLoopAgent(BaseAgent):
             # 7. Run Analyzer (Stage Reflector acting as Analyzer)
             # We spoof the state so the reflector evaluates the mutation
             state["high_level_stages"] = [{"title": f"Generation {gen}", "description": "Evolutionary mutation step"}]
-            state["stage_implementations"] = [{"implementation_summary": f"Parent score: {parent.score}, New score: {new_score}"}]
-            
+            state["stage_implementations"] = [
+                {"implementation_summary": f"Parent score: {parent.score}, New score: {new_score}"}
+            ]
+
             analyzer_feedback = ""
             try:
                 logger.info(f"[EvolutionLoop] Running Analyzer for Gen {gen}")
                 async for event in self._analyzer_agent.run_async(ctx):
                     # We stream the analyzer's thoughts too
                     yield event
-                
+
                 # Extract the analyzer's JSON output
                 reflector_output = state.get("stage_reflector_output", {})
                 analyzer_feedback = json.dumps(reflector_output)
@@ -236,9 +247,9 @@ class EvolutionLoopAgent(BaseAgent):
                 code=new_code,
                 score=new_score,
                 results={"score": new_score},
-                analysis=analyzer_feedback
+                analysis=analyzer_feedback,
             )
-            
+
             node_id = self._database.add(new_node)
             is_new_sota = self._best_snapshot.update_if_better(new_node, f"step_{gen}_gen", working_dir / "workflow")
 
@@ -248,19 +259,27 @@ class EvolutionLoopAgent(BaseAgent):
                 author=self.name,
                 content=types.Content(
                     role="model",
-                    parts=[types.Part(text=f"\n\n📊 **Generation {gen} Complete!**\nNew Score: {new_score} {sota_text}\nSaved to DB as Node {node_id}.\n\n")]
+                    parts=[
+                        types.Part(
+                            text=f"\n\n📊 **Generation {gen} Complete!**\nNew Score: {new_score} {sota_text}\nSaved to DB as Node {node_id}.\n\n"
+                        )
+                    ],
                 ),
                 turn_complete=True,
             )
 
         # Evolution Complete
         best_node = max(self._database.get_all(), key=lambda n: n.score)
-        
+
         yield Event(
             author=self.name,
             content=types.Content(
                 role="model",
-                parts=[types.Part(text=f"\n\n🏁 **EVOLUTION COMPLETE**\nBest Architecture found in {best_node.name} with score {best_node.score}!\n\n")]
+                parts=[
+                    types.Part(
+                        text=f"\n\n🏁 **EVOLUTION COMPLETE**\nBest Architecture found in {best_node.name} with score {best_node.score}!\n\n"
+                    )
+                ],
             ),
             turn_complete=True,
         )

@@ -8,6 +8,7 @@ import logging
 import subprocess
 from pathlib import Path
 
+
 logger = logging.getLogger(__name__)
 
 def build_knowledge_graph(repo_root: str) -> str:
@@ -33,7 +34,7 @@ def build_knowledge_graph(repo_root: str) -> str:
         if result.returncode == 0:
             report_path = Path(repo_root) / "graphify-out" / "GRAPH_REPORT.md"
             if report_path.exists():
-                return f"Graph built successfully. CRITICAL: You MUST use the read_file tool to read 'graphify-out/GRAPH_REPORT.md' for the high-level architecture overview before proceeding."
+                return "Graph built successfully. CRITICAL: You MUST use the read_file tool to read 'graphify-out/GRAPH_REPORT.md' for the high-level architecture overview before proceeding."
             return "Graph built successfully, but GRAPH_REPORT.md was not generated."
         else:
             return f"Error building graph. stderr: {result.stderr}"

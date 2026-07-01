@@ -5,19 +5,20 @@ and ArXiv for full-text ingestion.
 Implements rate-limiting, HTML-first downloading, and local paper listing.
 """
 
-import os
-import re
 import json
 import logging
+import os
+import re
 import urllib.error
 import urllib.request
-from pathlib import Path
 from datetime import datetime
-from typing import Optional, List
+from pathlib import Path
+from typing import List, Optional
 
 import arxiv
 import findpapers
 from semanticscholar import SemanticScholar
+
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +58,8 @@ def build_citation_graph(paper_id: str, working_dir: str) -> str:
     Builds a structured JSON citation graph including cross-connections
     between the target paper's references and citations (like Consensus).
     """
-    import re
     import json
+    import re
     from pathlib import Path
     
     logger.info(f"[Tool:build_citation_graph] Mapping ecosystem for {paper_id}")

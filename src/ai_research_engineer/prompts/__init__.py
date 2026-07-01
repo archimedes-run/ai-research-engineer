@@ -1,7 +1,8 @@
 """Prompt templates and loading utilities."""
 
-from pathlib import Path
 import logging
+from pathlib import Path
+
 
 logger = logging.getLogger(__name__)
 
@@ -33,9 +34,7 @@ def load_prompt(name: str, domain: str = "aiml") -> str:
     """
     valid = _valid_domains()
     if domain not in valid:
-        raise ValueError(
-            f"Unknown domain '{domain}'. Valid domains: {sorted(valid)}"
-        )
+        raise ValueError(f"Unknown domain '{domain}'. Valid domains: {sorted(valid)}")
 
     prompts_dir = Path(__file__).parent
 

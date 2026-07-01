@@ -7,8 +7,8 @@ with optional conversation context and file handling.
 
 import asyncio
 import logging
-import uuid
 import subprocess
+import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -107,7 +107,7 @@ class AIEngineer:
         auto_cleanup: Optional[bool] = None,
         template: str = "NeurReps_2024_Template",
         research_mode: str = "novelty",
-        domain: str = "aiml"
+        domain: str = "aiml",
     ):
         """Initialize AI Research Engineer core with configuration."""
         # Generate session ID
@@ -137,7 +137,7 @@ class AIEngineer:
             auto_cleanup=self.auto_cleanup,
             template=template,
             research_mode=research_mode,
-            domain=domain
+            domain=domain,
         )
 
         # ADK components
@@ -168,15 +168,14 @@ class AIEngineer:
                 mcp_servers=self.config.mcp_servers,
                 template=self.config.template,
                 research_mode="evolve" if self.config.agent_type == "evolve" else self.config.research_mode,
-                domain=self.config.domain   
+                domain=self.config.domain,
             )
-            
+
             # Store both app and agent references
             self.app = app
             self.agent = app.root_agent  # For compatibility
 
         elif self.config.agent_type == "claude_code":
-            from google.adk.agents import Agent
             from google.adk.apps import App
             from google.adk.apps.app import EventsCompactionConfig
 
@@ -338,7 +337,7 @@ class AIEngineer:
                         ["pdflatex", "-interaction=nonstopmode", main_tex.name],
                         cwd=str(manuscript_dir),
                         capture_output=True,
-                        check=True
+                        check=True,
                     )
                 logger.info("PDF compilation successful!")
             except subprocess.CalledProcessError as e:

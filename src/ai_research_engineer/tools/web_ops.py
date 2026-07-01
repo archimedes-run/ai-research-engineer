@@ -15,15 +15,15 @@ import requests
 # Private, loopback, link-local, and cloud-metadata address ranges that must
 # never be contacted to prevent SSRF attacks.
 _BLOCKED_NETWORKS = [
-    ipaddress.ip_network("127.0.0.0/8"),    # loopback
-    ipaddress.ip_network("10.0.0.0/8"),     # RFC-1918 private
+    ipaddress.ip_network("127.0.0.0/8"),  # loopback
+    ipaddress.ip_network("10.0.0.0/8"),  # RFC-1918 private
     ipaddress.ip_network("172.16.0.0/12"),  # RFC-1918 private
-    ipaddress.ip_network("192.168.0.0/16"), # RFC-1918 private
-    ipaddress.ip_network("169.254.0.0/16"), # link-local / AWS metadata
+    ipaddress.ip_network("192.168.0.0/16"),  # RFC-1918 private
+    ipaddress.ip_network("169.254.0.0/16"),  # link-local / AWS metadata
     ipaddress.ip_network("100.64.0.0/10"),  # shared address space (RFC 6598)
-    ipaddress.ip_network("::1/128"),        # IPv6 loopback
-    ipaddress.ip_network("fc00::/7"),       # IPv6 unique-local
-    ipaddress.ip_network("fe80::/10"),      # IPv6 link-local
+    ipaddress.ip_network("::1/128"),  # IPv6 loopback
+    ipaddress.ip_network("fc00::/7"),  # IPv6 unique-local
+    ipaddress.ip_network("fe80::/10"),  # IPv6 link-local
 ]
 
 
