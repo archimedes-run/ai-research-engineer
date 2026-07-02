@@ -2,12 +2,14 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import AsyncGenerator, Dict, Optional
+from pathlib import Path
+from typing import AsyncGenerator, Dict, List, Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
@@ -20,6 +22,94 @@ from ai_research_engineer.server.run_store import RunStore
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+# ---------------------------------------------------------------------------
+# File-serving: constants, binary detection, secret redaction
+# ---------------------------------------------------------------------------
+
+_EXCLUDE_DIRS: frozenset[str] = frozenset({
+    ".git", "node_modules", "__pycache__", ".graphify-out", "graphify-out",
+    ".next", ".venv", "venv", ".mypy_cache", ".ruff_cache", ".pytest_cache",
+    "dist", "build", ".turbo", ".cache",
+})
+
+_BINARY_EXTENSIONS: frozenset[str] = frozenset({
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico",
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx",
+    ".zip", ".tar", ".gz", ".bz2", ".7z",
+    ".mp3", ".mp4", ".wav", ".avi", ".mov",
+    ".woff", ".woff2", ".ttf", ".eot",
+    ".pyc", ".pyo", ".so", ".dylib", ".dll",
+    ".pkl", ".parquet", ".h5", ".hdf5", ".npy", ".npz",
+    ".pt", ".pth", ".bin", ".safetensors",
+})
+
+_DOTFILE_DENY: frozenset[str] = frozenset({
+    ".env", ".env.local", ".env.production", ".env.development",
+    ".env.staging", ".netrc", ".npmrc", ".pypirc", ".aws",
+})
+
+_MAX_TREE_DEPTH = 6
+_MAX_TREE_ENTRIES = 500
+_MAX_FILE_BYTES = 512 * 1024  # 512 KB
+
+_SECRET_PATTERNS: List[re.Pattern] = [
+    re.compile(r"(AKIA[0-9A-Z]{16})"),
+    re.compile(r'(?i)(api[_\-]?key|token|secret|password|passwd|credential)\s*[=:]\s*["\']([^"\']{8,})["\']'),
+    re.compile(r'(?i)(api[_\-]?key|auth[_\-]?token|secret[_\-]?key)\s*=\s*(\S{8,})'),
+]
+
+
+def _is_binary(path: Path) -> bool:
+    if path.suffix.lower() in _BINARY_EXTENSIONS:
+        return True
+    try:
+        chunk = path.read_bytes()[:8192]
+        return b"\x00" in chunk
+    except Exception:
+        return True
+
+
+def _redact_secrets(text: str) -> tuple[str, bool]:
+    redacted = False
+    result = text
+    for pat in _SECRET_PATTERNS:
+        new = pat.sub("[REDACTED]", result)
+        if new != result:
+            redacted = True
+            result = new
+    return result, redacted
+
+
+def _build_file_tree(root: Path, path: Path, depth: int, counter: List[int]) -> List[dict]:
+    if depth > _MAX_TREE_DEPTH or counter[0] >= _MAX_TREE_ENTRIES:
+        return []
+    entries: List[dict] = []
+    try:
+        items = sorted(path.iterdir(), key=lambda x: (x.is_file(), x.name.lower()))
+    except PermissionError:
+        return []
+    for item in items:
+        if item.name in _EXCLUDE_DIRS:
+            continue
+        counter[0] += 1
+        if counter[0] >= _MAX_TREE_ENTRIES:
+            break
+        rel = str(item.relative_to(root))
+        if item.is_dir():
+            children = _build_file_tree(root, item, depth + 1, counter)
+            entry: dict = {"path": rel, "type": "dir", "size": 0}
+            if children:
+                entry["children"] = children
+            entries.append(entry)
+        else:
+            try:
+                size = item.stat().st_size
+            except OSError:
+                size = 0
+            entries.append({"path": rel, "type": "file", "size": size})
+    return entries
+
 
 # ---------------------------------------------------------------------------
 # Auth
@@ -225,6 +315,66 @@ async def get_session_usage(session_id: str):
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     return RunStore.get_usage(session_id)
+
+
+@app.get("/api/sessions/{session_id}/files")
+async def get_session_files(session_id: str):
+    session = RunStore.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    working_dir = RunStore.DATA_DIR / "runs" / session_id
+    if not working_dir.exists():
+        raise HTTPException(status_code=404, detail="Working directory not found")
+    counter = [0]
+    return _build_file_tree(working_dir, working_dir, 0, counter)
+
+
+@app.get("/api/sessions/{session_id}/files/{file_path:path}")
+async def get_session_file_content(session_id: str, file_path: str):
+    session = RunStore.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    working_dir = RunStore.DATA_DIR / "runs" / session_id
+    if not working_dir.exists():
+        raise HTTPException(status_code=404, detail="Working directory not found")
+
+    from ai_research_engineer.tools.file_ops import _validate_path
+
+    try:
+        abs_path = _validate_path(file_path, str(working_dir))
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path traversal denied")
+
+    if not abs_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    if not abs_path.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file")
+
+    if abs_path.name in _DOTFILE_DENY or (abs_path.name.startswith(".env")):
+        raise HTTPException(status_code=403, detail="Access to this file is denied")
+
+    size = abs_path.stat().st_size
+
+    if _is_binary(abs_path):
+        return {"path": file_path, "binary": True, "too_large": False, "size": size}
+
+    if size > _MAX_FILE_BYTES:
+        return {"path": file_path, "binary": False, "too_large": True, "size": size}
+
+    try:
+        content = abs_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return {"path": file_path, "binary": True, "too_large": False, "size": size}
+
+    content, redacted = _redact_secrets(content)
+    return {
+        "path": file_path,
+        "content": content,
+        "size": size,
+        "binary": False,
+        "too_large": False,
+        "redacted": redacted,
+    }
 
 
 @app.get("/api/sessions/{session_id}/stream")
