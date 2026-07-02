@@ -172,10 +172,13 @@ _active_sessions: Dict[str, asyncio.Queue] = {}
 async def lifespan(app: FastAPI):
     RunStore.init()
     # Reconcile stale running sessions from before the last restart.
+    # Sessions in "awaiting_input" are intentionally paused — leave them alone.
     for session in RunStore.list_sessions():
-        if session.get("status") == "running" and session["session_id"] not in _active_sessions:
-            RunStore.update_session(session["session_id"], {"status": "interrupted"})
-            logger.warning("Marked stale session %s as interrupted on startup.", session["session_id"])
+        sid = session["session_id"]
+        status = session.get("status")
+        if status == "running" and sid not in _active_sessions:
+            RunStore.update_session(sid, {"status": "interrupted"})
+            logger.warning("Marked stale session %s as interrupted on startup.", sid)
     yield
 
 
@@ -251,6 +254,7 @@ async def create_session(
         "research_mode": body.research_mode,
         "template": body.template,
         "use_graphify": int(body.use_graphify),
+        "hitl_enabled": int(body.hitl_enabled),
         "started_at": datetime.now().isoformat(),
         "completed_at": None,
         "duration": None,
@@ -270,6 +274,7 @@ async def create_session(
         body.research_mode,
         body.template,
         body.use_graphify,
+        body.hitl_enabled,
         queue,
     )
 
@@ -325,6 +330,89 @@ async def get_session_tree(session_id: str):
             "context": "",
             "graph": {"nodes": [], "edges": []},
         }
+
+
+@app.get("/api/sessions/{session_id}/hitl")
+async def get_session_hitl(session_id: str):
+    session = RunStore.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    pending = RunStore.get_pending_hitl(session_id)
+    return {"pending": pending}
+
+
+@app.post("/api/sessions/{session_id}/answer")
+async def answer_hitl(
+    session_id: str,
+    body: dict,
+    background_tasks: BackgroundTasks,
+    _: None = Security(_require_token),
+):
+    session = RunStore.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    pending = RunStore.get_pending_hitl(session_id)
+    if not pending:
+        raise HTTPException(status_code=409, detail="No pending HITL request for this session")
+
+    answer = body.get("answer", "")
+    if not answer:
+        raise HTTPException(status_code=422, detail="answer field is required")
+
+    ok = RunStore.answer_hitl_request(pending["request_id"], answer)
+    if not ok:
+        raise HTTPException(status_code=409, detail="HITL request already answered")
+
+    # Resume the workflow in the background
+    queue: asyncio.Queue = asyncio.Queue()
+    _active_sessions[session_id] = queue
+    RunStore.update_session(session_id, {"status": "running"})
+
+    background_tasks.add_task(
+        _run_agent_resume,
+        session_id,
+        pending["stage_key"],
+        answer,
+        queue,
+    )
+
+    return {"status": "resuming", "request_id": pending["request_id"]}
+
+
+@app.post("/api/sessions/{session_id}/resume")
+async def resume_session(
+    session_id: str,
+    background_tasks: BackgroundTasks,
+    _: None = Security(_require_token),
+):
+    """Resume a session that is awaiting_input without providing a new answer
+    (re-uses the last answer already stored, or resumes if answer was recorded externally)."""
+    session = RunStore.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.get("status") not in ("awaiting_input", "interrupted"):
+        raise HTTPException(status_code=409, detail="Session is not in a resumable state")
+    if session_id in _active_sessions:
+        raise HTTPException(status_code=409, detail="Session is already running")
+
+    checkpoint = RunStore.load_checkpoint(session_id)
+    if not checkpoint:
+        raise HTTPException(status_code=409, detail="No checkpoint found for this session")
+
+    queue: asyncio.Queue = asyncio.Queue()
+    _active_sessions[session_id] = queue
+    RunStore.update_session(session_id, {"status": "running"})
+
+    background_tasks.add_task(
+        _run_agent_resume,
+        session_id,
+        checkpoint["stage_key"],
+        None,
+        queue,
+    )
+
+    return {"status": "resuming"}
 
 
 @app.get("/api/sessions/{session_id}/usage")
@@ -445,6 +533,7 @@ async def _run_agent(
     research_mode: str,
     template: str,
     use_graphify: bool,
+    hitl_enabled: bool,
     queue: asyncio.Queue,
 ):
     from ai_research_engineer.core.api import AIEngineer
@@ -471,6 +560,8 @@ async def _run_agent(
             research_mode=research_mode,
             domain=domain,
             use_graphify=use_graphify,
+            hitl_enabled=hitl_enabled,
+            session_id=session_id,
         )
 
         from ai_research_engineer.core.pricing import cost_usd as _cost_usd
@@ -529,4 +620,113 @@ async def _run_agent(
 
     finally:
         await queue.put(None)  # sentinel to close SSE connections
+        _active_sessions.pop(session_id, None)
+
+
+async def _run_agent_resume(
+    session_id: str,
+    gate_key: str,
+    answer: Optional[str],
+    queue: asyncio.Queue,
+):
+    """Resume a paused HITL session from its last checkpoint."""
+    from ai_research_engineer.core.api import AIEngineer
+
+    session_rec = RunStore.get_session(session_id)
+    if not session_rec:
+        logger.error("Resume: session %s not found", session_id)
+        await queue.put(None)
+        _active_sessions.pop(session_id, None)
+        return
+
+    working_dir = RunStore.DATA_DIR / "runs" / session_id
+    working_dir.mkdir(parents=True, exist_ok=True)
+    start_time = datetime.now()
+
+    # Load checkpoint state
+    checkpoint = RunStore.load_checkpoint(session_id)
+    initial_state: dict = checkpoint["state"] if checkpoint else {}
+
+    # Inject the answer into state so agents can read it
+    if answer is not None:
+        initial_state[f"_hitl_answer:{gate_key}"] = answer
+
+    # Clear pause keys so the next run continues normally
+    for key in ("_hitl_paused", "_hitl_request_id", "_hitl_question", "_hitl_context_md"):
+        initial_state.pop(key, None)
+
+    try:
+        engineer = AIEngineer(
+            agent_type=session_rec.get("agent_type", "adk"),
+            working_dir=str(working_dir),
+            template=session_rec.get("template", "NeurReps_2024_Template"),
+            research_mode=session_rec.get("research_mode", "novelty"),
+            domain=session_rec.get("domain", "aiml"),
+            use_graphify=bool(session_rec.get("use_graphify", 0)),
+            hitl_enabled=bool(session_rec.get("hitl_enabled", 0)),
+            session_id=session_id,
+        )
+
+        from ai_research_engineer.core.pricing import cost_usd as _cost_usd
+
+        topic = session_rec.get("topic", "")
+        gen = await engineer.run_async(topic, stream=True, initial_state=initial_state)
+        async for event in gen:
+            await queue.put(event)
+            seq = RunStore.append_event(session_id, event)
+
+            if event.get("type") == "usage":
+                u = event.get("usage", {})
+                model = event.get("model")
+                inp = u.get("input_tokens", 0) or 0
+                cached = u.get("cached_input_tokens", 0) or 0
+                out = u.get("output_tokens", 0) or 0
+                usd = _cost_usd(model, inp, out, cached)
+                RunStore.add_usage(
+                    session_id=session_id,
+                    seq=seq,
+                    input_tokens=inp,
+                    output_tokens=out,
+                    cached_input_tokens=cached,
+                    model=model,
+                    engine="adk",
+                    cost_usd=usd,
+                )
+
+        # Check if paused again (another gate hit)
+        final_status = "awaiting_input" if initial_state.get("_hitl_paused") else "completed"
+        if final_status == "completed":
+            duration = (datetime.now() - start_time).total_seconds()
+            files_created = [
+                str(p.relative_to(working_dir))
+                for p in working_dir.rglob("*")
+                if p.is_file() and not any(part.startswith(".") for part in p.parts)
+            ]
+            RunStore.update_session(
+                session_id,
+                {
+                    "status": "completed",
+                    "completed_at": datetime.now().isoformat(),
+                    "duration": duration,
+                    "files_created": files_created,
+                },
+            )
+        else:
+            RunStore.update_session(session_id, {"status": "awaiting_input"})
+
+    except Exception as e:
+        logger.error(f"Resume session {session_id} failed: {e}", exc_info=True)
+        err = {"type": "error", "content": str(e), "timestamp": datetime.now().strftime("%H:%M:%S")}
+        await queue.put(err)
+        RunStore.append_event(session_id, err)
+        RunStore.update_session(
+            session_id,
+            {
+                "status": "failed",
+                "completed_at": datetime.now().isoformat(),
+            },
+        )
+
+    finally:
+        await queue.put(None)
         _active_sessions.pop(session_id, None)

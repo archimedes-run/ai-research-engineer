@@ -20,3 +20,4 @@ class RunSessionRequest(BaseModel):
     research_mode: str = "novelty"
     template: str = "NeurReps_2024_Template"
     use_graphify: bool = False
+    hitl_enabled: bool = False

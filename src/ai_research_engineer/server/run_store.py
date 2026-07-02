@@ -406,6 +406,133 @@ class RunStore:
     # One-time JSON migration
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # HITL helpers
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def save_checkpoint(cls, session_id: str, stage_key: str, state_json: str) -> None:
+        now = datetime.now().isoformat()
+        with _lock:
+            con = _conn()
+            try:
+                con.execute(
+                    "INSERT OR REPLACE INTO run_checkpoints(session_id, stage_key, state_json, created_at) VALUES (?, ?, ?, ?)",
+                    (session_id, stage_key, state_json, now),
+                )
+                con.commit()
+            finally:
+                con.close()
+
+    @classmethod
+    def load_checkpoint(cls, session_id: str) -> Optional[Dict]:
+        con = _conn()
+        try:
+            row = con.execute(
+                "SELECT * FROM run_checkpoints WHERE session_id = ? ORDER BY created_at DESC LIMIT 1",
+                (session_id,),
+            ).fetchone()
+        finally:
+            con.close()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d["state"] = json.loads(d["state_json"])
+        except (json.JSONDecodeError, TypeError):
+            d["state"] = {}
+        return d
+
+    @classmethod
+    def create_hitl_request(
+        cls,
+        session_id: str,
+        stage_key: str,
+        question: str,
+        context_md: str = "",
+        options: Optional[List[str]] = None,
+    ) -> Dict:
+        now = datetime.now().isoformat()
+        request_id = str(uuid.uuid4())
+        options_json = json.dumps(options or [])
+        with _lock:
+            con = _conn()
+            try:
+                con.execute(
+                    """
+                    INSERT INTO hitl_requests(request_id, session_id, stage_key, question, context_md, options, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+                    """,
+                    (request_id, session_id, stage_key, question, context_md, options_json, now),
+                )
+                con.commit()
+            finally:
+                con.close()
+        return {
+            "request_id": request_id,
+            "session_id": session_id,
+            "stage_key": stage_key,
+            "question": question,
+            "context_md": context_md,
+            "options": options or [],
+            "status": "pending",
+            "created_at": now,
+        }
+
+    @classmethod
+    def get_pending_hitl(cls, session_id: str) -> Optional[Dict]:
+        con = _conn()
+        try:
+            row = con.execute(
+                "SELECT * FROM hitl_requests WHERE session_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1",
+                (session_id,),
+            ).fetchone()
+        finally:
+            con.close()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d["options"] = json.loads(d.get("options") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            d["options"] = []
+        return d
+
+    @classmethod
+    def get_hitl_request(cls, request_id: str) -> Optional[Dict]:
+        con = _conn()
+        try:
+            row = con.execute(
+                "SELECT * FROM hitl_requests WHERE request_id = ?",
+                (request_id,),
+            ).fetchone()
+        finally:
+            con.close()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            d["options"] = json.loads(d.get("options") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            d["options"] = []
+        return d
+
+    @classmethod
+    def answer_hitl_request(cls, request_id: str, answer: str) -> bool:
+        now = datetime.now().isoformat()
+        with _lock:
+            con = _conn()
+            try:
+                cur = con.execute(
+                    "UPDATE hitl_requests SET status = 'answered', answer = ?, answered_at = ? WHERE request_id = ? AND status = 'pending'",
+                    (answer, now, request_id),
+                )
+                con.commit()
+                updated = cur.rowcount > 0
+            finally:
+                con.close()
+        return updated
+
     @classmethod
     def _maybe_migrate(cls) -> None:
         con = _conn()
