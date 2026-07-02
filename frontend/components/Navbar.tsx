@@ -2,7 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Github, Menu, X } from 'lucide-react'
+import { Github, Menu, X, Terminal } from 'lucide-react'
+
+const COCKPIT_ENABLED = process.env.NEXT_PUBLIC_ENABLE_COCKPIT === 'true'
 
 function DiscordIcon({ className }: { className?: string }) {
   return (
@@ -100,6 +102,19 @@ export default function Navbar() {
             <DiscordIcon className="w-4 h-4" />
             Discord
           </Link>
+
+          {COCKPIT_ENABLED && (
+            <Link
+              href="/cockpit"
+              className={`font-body text-sm font-semibold tracking-widest uppercase transition-colors duration-200 flex items-center gap-1.5 px-3 py-1.5 rounded-md ${scrolled
+                  ? 'text-[#E05240] border border-[#E05240]/30 hover:border-[#E05240]/60 hover:bg-[#E05240]/5'
+                  : 'text-white border border-white/30 hover:border-white/60 hover:bg-white/5'
+                }`}
+            >
+              <Terminal className="w-3.5 h-3.5" />
+              Cockpit
+            </Link>
+          )}
         </div>
 
         {/* Mobile menu toggle */}
@@ -156,6 +171,16 @@ export default function Navbar() {
                 <DiscordIcon className="w-4 h-4" />
                 Discord
               </Link>
+              {COCKPIT_ENABLED && (
+                <Link
+                  href="/cockpit"
+                  onClick={() => setMenuOpen(false)}
+                  className="font-body text-base text-[#E05240] hover:text-[#C0392B] py-3 flex items-center gap-2 font-semibold tracking-widest uppercase"
+                >
+                  <Terminal className="w-4 h-4" />
+                  Cockpit
+                </Link>
+              )}
             </div>
           </motion.div>
         )}
