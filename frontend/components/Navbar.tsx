@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Github, Menu, X, Terminal } from 'lucide-react'
+import { Github, Menu, X } from 'lucide-react'
 
 const COCKPIT_ENABLED = process.env.NEXT_PUBLIC_ENABLE_COCKPIT === 'true'
 
@@ -106,12 +106,11 @@ export default function Navbar() {
           {COCKPIT_ENABLED && (
             <Link
               href="/cockpit"
-              className={`font-body text-sm font-semibold tracking-widest uppercase transition-colors duration-200 flex items-center gap-1.5 px-3 py-1.5 rounded-md ${scrolled
-                  ? 'text-[#E05240] border border-[#E05240]/30 hover:border-[#E05240]/60 hover:bg-[#E05240]/5'
-                  : 'text-white border border-white/30 hover:border-white/60 hover:bg-white/5'
+              className={`font-body text-sm transition-colors duration-200 ${scrolled
+                  ? 'text-[#3C2F2A]/70 hover:text-[#3C2F2A]'
+                  : 'text-white/80 hover:text-white drop-shadow-sm'
                 }`}
             >
-              <Terminal className="w-3.5 h-3.5" />
               Cockpit
             </Link>
           )}
@@ -175,9 +174,8 @@ export default function Navbar() {
                 <Link
                   href="/cockpit"
                   onClick={() => setMenuOpen(false)}
-                  className="font-body text-base text-[#E05240] hover:text-[#C0392B] py-3 flex items-center gap-2 font-semibold tracking-widest uppercase"
+                  className="font-body text-base text-[#3C2F2A]/80 hover:text-[#3C2F2A] py-3 border-b border-[#3C2F2A]/8"
                 >
-                  <Terminal className="w-4 h-4" />
                   Cockpit
                 </Link>
               )}

@@ -33,6 +33,7 @@ from ai_research_engineer.agents.adk.utils import (
     get_generate_content_config,
     is_network_disabled,
 )
+from ai_research_engineer.agents.claude_code import ClaudeCodeAgent
 from ai_research_engineer.prompts import load_prompt
 
 
