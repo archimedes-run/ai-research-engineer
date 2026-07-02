@@ -7,15 +7,15 @@ import uuid
 from collections import deque
 from contextlib import asynccontextmanager
 from datetime import datetime
-from typing import AsyncGenerator, Dict, List, Optional
+from typing import AsyncGenerator, Dict, Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Request, Security
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 
 from ai_research_engineer.server.models import RunSessionRequest, SubmissionRequest
-from ai_research_engineer.server.storage import Storage
+from ai_research_engineer.server.run_store import RunStore
 
 
 logger = logging.getLogger(__name__)
@@ -80,11 +80,11 @@ _active_sessions: Dict[str, asyncio.Queue] = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Storage.init()
+    RunStore.init()
     # Reconcile stale running sessions from before the last restart.
-    for session in Storage.list_sessions():
+    for session in RunStore.list_sessions():
         if session.get("status") == "running" and session["session_id"] not in _active_sessions:
-            Storage.update_session(session["session_id"], {"status": "interrupted"})
+            RunStore.update_session(session["session_id"], {"status": "interrupted"})
             logger.warning("Marked stale session %s as interrupted on startup.", session["session_id"])
     yield
 
@@ -113,13 +113,13 @@ async def create_submission(
     body: SubmissionRequest,
     _: None = Security(_require_token),
 ):
-    record = Storage.save_submission(body.model_dump())
+    record = RunStore.save_submission(body.model_dump())
     return {"id": record["id"], "status": "queued", "message": "Submission received. Research will begin soon."}
 
 
 @app.get("/api/sessions")
 async def list_sessions():
-    sessions = Storage.list_sessions()
+    sessions = RunStore.list_sessions()
     for s in sessions:
         if s["session_id"] in _active_sessions:
             s["status"] = "running"
@@ -128,7 +128,7 @@ async def list_sessions():
 
 @app.get("/api/sessions/{session_id}")
 async def get_session(session_id: str):
-    session = Storage.get_session(session_id)
+    session = RunStore.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
     if session_id in _active_sessions:
@@ -148,7 +148,7 @@ async def create_session(
     _check_rate_limit(client_ip)
 
     session_id = f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
-    display_id = Storage.next_display_id()
+    display_id = RunStore.next_display_id()
 
     session_record = {
         "session_id": session_id,
@@ -163,10 +163,9 @@ async def create_session(
         "started_at": datetime.now().isoformat(),
         "completed_at": None,
         "duration": None,
-        "events": [],
         "files_created": [],
     }
-    Storage.save_session(session_record)
+    RunStore.save_session(session_record)
 
     queue: asyncio.Queue = asyncio.Queue()
     _active_sessions[session_id] = queue
@@ -185,21 +184,38 @@ async def create_session(
     return {"session_id": session_id, "display_id": display_id}
 
 
+@app.get("/api/sessions/{session_id}/events")
+async def get_session_events(
+    session_id: str,
+    after_seq: int = Query(default=0, ge=0),
+):
+    session = RunStore.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return RunStore.get_events(session_id, after_seq=after_seq)
+
+
 @app.get("/api/sessions/{session_id}/stream")
-async def stream_session(session_id: str):
-    session = Storage.get_session(session_id)
+async def stream_session(
+    session_id: str,
+    after_seq: int = Query(default=0, ge=0),
+):
+    session = RunStore.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
     async def generate() -> AsyncGenerator[str, None]:
         # Completed session: replay stored events then close
         if session_id not in _active_sessions:
-            for event in session.get("events", []):
+            for event in RunStore.get_events(session_id, after_seq=after_seq):
                 yield f"data: {json.dumps(event)}\n\n"
             yield f"data: {json.dumps({'type': 'completed'})}\n\n"
             return
 
-        # Live session: drain the queue until sentinel (None)
+        # Live session: replay already-persisted events, then drain the live queue
+        for event in RunStore.get_events(session_id, after_seq=after_seq):
+            yield f"data: {json.dumps(event)}\n\n"
+
         queue = _active_sessions[session_id]
         while True:
             try:
@@ -221,9 +237,6 @@ async def stream_session(session_id: str):
     )
 
 
-_FLUSH_INTERVAL = 10  # persist events to storage every N new events
-
-
 async def _run_agent(
     session_id: str,
     topic: str,
@@ -235,10 +248,8 @@ async def _run_agent(
 ):
     from ai_research_engineer.core.api import AIEngineer
 
-    working_dir = Storage.DATA_DIR / "runs" / session_id
+    working_dir = RunStore.DATA_DIR / "runs" / session_id
     working_dir.mkdir(parents=True, exist_ok=True)
-    events_log: List[Dict] = []
-    unflushed = 0
     start_time = datetime.now()
 
     try:
@@ -253,13 +264,7 @@ async def _run_agent(
         gen = await engineer.run_async(topic, stream=True)
         async for event in gen:
             await queue.put(event)
-            events_log.append(event)
-            unflushed += 1
-
-            # Incremental flush so a crash mid-run doesn't lose everything
-            if unflushed >= _FLUSH_INTERVAL:
-                Storage.update_session(session_id, {"events": list(events_log)})
-                unflushed = 0
+            RunStore.append_event(session_id, event)
 
         duration = (datetime.now() - start_time).total_seconds()
         files_created = [
@@ -267,13 +272,12 @@ async def _run_agent(
             for p in working_dir.rglob("*")
             if p.is_file() and not any(part.startswith(".") for part in p.parts)
         ]
-        Storage.update_session(
+        RunStore.update_session(
             session_id,
             {
                 "status": "completed",
                 "completed_at": datetime.now().isoformat(),
                 "duration": duration,
-                "events": events_log,
                 "files_created": files_created,
             },
         )
@@ -282,13 +286,12 @@ async def _run_agent(
         logger.error(f"Session {session_id} failed: {e}", exc_info=True)
         err = {"type": "error", "content": str(e), "timestamp": datetime.now().strftime("%H:%M:%S")}
         await queue.put(err)
-        events_log.append(err)
-        Storage.update_session(
+        RunStore.append_event(session_id, err)
+        RunStore.update_session(
             session_id,
             {
                 "status": "failed",
                 "completed_at": datetime.now().isoformat(),
-                "events": events_log,
             },
         )
 
