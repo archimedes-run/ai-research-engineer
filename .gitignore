@@ -54,5 +54,9 @@ experiments/
 # Benchmark output (CSV/Markdown/working-dirs produced by runs)
 benchmarks/cost/out/
 
+# Graphify code-structure graphs (built at runtime, never commit)
+graphify-out/
+**/graphify-out/
+
 # Logs
 logs/

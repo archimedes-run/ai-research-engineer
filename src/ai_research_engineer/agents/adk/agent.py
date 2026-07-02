@@ -406,7 +406,8 @@ def create_agent(
     mcp_servers: Optional[List[str]] = None,
     template: str = "NeurReps_2024_Template",
     research_mode: str = "novelty",
-    domain: str = "aiml"
+    domain: str = "aiml",
+    use_graphify: bool = False,
 ) -> SequentialAgent:
     """
     Factory function to create an AI Research Engineer ADK agent.
@@ -633,6 +634,21 @@ def create_agent(
     # Only add fetch_url if network access is not disabled
     if not is_network_disabled():
         tools.append(fetch_url)
+
+    # Add Graphify code-graph query tool when enabled and available
+    if use_graphify:
+        from ai_research_engineer.core.graphify import graphify_available, query_graph as _query_graph  # noqa: PLC0415
+
+        if graphify_available():
+            def query_code_graph(question: str, budget: int = 1500) -> str:
+                """Query the code-structure graph to understand the codebase before writing or modifying code. Use it to find relevant modules, understand function signatures, and identify dependencies. Returns a text summary of the most relevant code context."""
+                result = _query_graph(working_dir, question, budget)
+                return result or "No results from code graph (graph may not be built yet)."
+
+            tools.append(query_code_graph)
+            logger.info("[AIResearcher] graphify query_code_graph tool added")
+        else:
+            logger.warning("[AIResearcher] use_graphify=True but graphify package not installed — tool skipped")
 
     logger.info(f"[AIResearcher] Configured {len(tools)} tools (including Academic Literature tools)")
 
@@ -967,7 +983,8 @@ def create_app(
     mcp_servers: Optional[List[str]] = None,
     template: str = "NeurReps_2024_Template",
     research_mode: str = "novelty",
-    domain: str = "aiml"
+    domain: str = "aiml",
+    use_graphify: bool = False,
 ) -> App:
     """
     Create an App instance with context management for the ADK agent.
@@ -991,7 +1008,7 @@ def create_app(
         The configured App with context caching and compression
     """
     # Create the root agent
-    root_agent = create_agent(working_dir=working_dir, mcp_servers=mcp_servers, template=template, research_mode=research_mode, domain=domain)
+    root_agent = create_agent(working_dir=working_dir, mcp_servers=mcp_servers, template=template, research_mode=research_mode, domain=domain, use_graphify=use_graphify)
 
     # Configure context caching (just creating the config enables caching)
     cache_config = ContextCacheConfig()

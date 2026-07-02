@@ -160,6 +160,7 @@ async def create_session(
         "domain": body.domain,
         "research_mode": body.research_mode,
         "template": body.template,
+        "use_graphify": int(body.use_graphify),
         "started_at": datetime.now().isoformat(),
         "completed_at": None,
         "duration": None,
@@ -178,6 +179,7 @@ async def create_session(
         body.domain,
         body.research_mode,
         body.template,
+        body.use_graphify,
         queue,
     )
 
@@ -274,6 +276,7 @@ async def _run_agent(
     domain: str,
     research_mode: str,
     template: str,
+    use_graphify: bool,
     queue: asyncio.Queue,
 ):
     from ai_research_engineer.core.api import AIEngineer
@@ -282,6 +285,16 @@ async def _run_agent(
     working_dir.mkdir(parents=True, exist_ok=True)
     start_time = datetime.now()
 
+    # Build code graph before starting the agent (fail-soft)
+    if use_graphify:
+        try:
+            from ai_research_engineer.core.graphify import ensure_graph, graphify_available
+
+            if graphify_available():
+                await asyncio.to_thread(ensure_graph, working_dir)
+        except Exception as _ge:
+            logger.warning("graphify ensure_graph failed at run start: %s", _ge)
+
     try:
         engineer = AIEngineer(
             agent_type=agent_type,
@@ -289,6 +302,7 @@ async def _run_agent(
             template=template,
             research_mode=research_mode,
             domain=domain,
+            use_graphify=use_graphify,
         )
 
         from ai_research_engineer.core.pricing import cost_usd as _cost_usd

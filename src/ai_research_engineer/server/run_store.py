@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   research_mode TEXT,
   template      TEXT,
   hitl_enabled  INTEGER DEFAULT 0,
+  use_graphify  INTEGER DEFAULT 0,
   current_stage TEXT,
   working_dir   TEXT,
   files_created TEXT DEFAULT '[]',
@@ -114,6 +115,7 @@ _SESSION_COLUMNS = {
     "research_mode",
     "template",
     "hitl_enabled",
+    "use_graphify",
     "current_stage",
     "working_dir",
     "files_created",
@@ -143,7 +145,15 @@ class RunStore:
         with _lock:
             con = _conn()
             con.executescript(_SCHEMA)
-            con.commit()
+            # Add columns introduced after the initial schema (idempotent).
+            for alter_sql in [
+                "ALTER TABLE sessions ADD COLUMN use_graphify INTEGER DEFAULT 0",
+            ]:
+                try:
+                    con.execute(alter_sql)
+                    con.commit()
+                except sqlite3.OperationalError:
+                    pass  # column already exists
             con.close()
 
         cls._maybe_migrate()

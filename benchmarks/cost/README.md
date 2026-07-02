@@ -53,11 +53,11 @@ uv run python benchmarks/cost/run_benchmark.py --max-runs 10 --budget-usd 2.00 -
 | Dimension | Values today | Notes |
 |-----------|-------------|-------|
 | task modes | `novel`, `replication`, `evolve` | defined in `suite.yaml` |
-| graphify | `off` | `on` reserved — Phase H-Graphify |
+| graphify | `off`, `on` | `on` requires `graphifyy` installed |
 | engine | `default` | alternate engines reserved — Phase I |
 | repetitions | 1 (default) | increase for variance analysis; cost × reps |
 
-Cells for unavailable dimensions (`graphify=on`, unknown engines) are **skipped
+Cells for unavailable dimensions (unknown engines) are **skipped
 automatically** with a WARNING log. The harness never fails on reserved values.
 
 ---
@@ -134,8 +134,9 @@ uv run ruff check benchmarks/ tests/unit/test_benchmark.py
 - **Real sweeps consume API credits.** The `--budget-usd` guard stops the harness
   *after* a run that pushes accumulated cost past the limit (the guard fires before
   the *next* run). Set it conservatively.
-- **Graphify rows** (`graphify=on`) will activate automatically once Phase H-Graphify
-  lands and wires the dimension. No harness changes needed.
+- **Graphify rows** (`graphify=on`) require `graphifyy` installed (`pip install graphifyy`).
+  The benchmark passes `use_graphify=True` to the engine; the engine builds the code graph
+  before the run and per evolve generation.
 - **Alternate engine rows** will activate once Phase I lands. Same principle.
 - The harness drives `AIEngineer.run_async(stream=True)` directly — no server
   required, no dependency on `/usage` endpoint.

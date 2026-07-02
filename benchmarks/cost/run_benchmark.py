@@ -47,7 +47,7 @@ _DEFAULT_OUT_DIR = Path(__file__).parent / "out"
 # Engine names that are implemented today.
 _AVAILABLE_ENGINES: frozenset[str] = frozenset({"default", "mock"})
 # Graphify values that are implemented today.
-_AVAILABLE_GRAPHIFY: frozenset[bool] = frozenset({False})
+_AVAILABLE_GRAPHIFY: frozenset[bool] = frozenset({False, True})
 
 
 # ---------------------------------------------------------------------------
@@ -235,6 +235,7 @@ class _FakeEngine:
         working_dir: str = ".",
         research_mode: str = "novelty",
         domain: str = "aiml",
+        use_graphify: bool = False,
         **_kw,
     ):
         self._working_dir = Path(working_dir)
@@ -313,6 +314,7 @@ async def run_cell(cell: BenchmarkCell, engine_class: Callable, work_base: Path)
             working_dir=str(work_dir),
             research_mode=cell.research_mode,
             domain=cell.domain,
+            use_graphify=cell.graphify,
         )
         gen = await engine.run_async(cell.topic, stream=True)
         async for event in gen:
