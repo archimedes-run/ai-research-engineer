@@ -7,7 +7,7 @@ sampling past code nodes, mutating them via Claude, and storing the results.
 import json
 import logging
 from pathlib import Path
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Callable, Dict, Optional
 
 from google.adk.agents import BaseAgent, InvocationContext
 from google.adk.events import Event
@@ -118,6 +118,19 @@ class EvolutionLoopAgent(BaseAgent):
 
         logger.warning(f"[EvolutionLoop] No code available for parent '{parent.name}'; mutating whatever is on disk.")
 
+    @staticmethod
+    def _tree_safe(fn: Callable, *args: Any, **kwargs: Any) -> Any:
+        """Call fn(*args, **kwargs), log and swallow any exception.
+
+        The argument tree is observability only — failures must never affect
+        control flow.
+        """
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            logger.warning("[EvolutionLoop] Tree write ignored: %s", exc)
+            return None
+
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """
         Main evolutionary logic.
@@ -146,6 +159,35 @@ class EvolutionLoopAgent(BaseAgent):
             turn_complete=True,
         )
 
+        # --- Argument tree: initialise (failure-isolated) ---
+        _tree: Optional[Any] = None
+        # Maps database node id (int) → argument-tree node id (str UUID)
+        db_to_tree: Dict[Any, str] = {}
+        try:
+            from ai_research_engineer.core.argument_tree import TreeBuilder
+
+            _tree = TreeBuilder(ctx.session.id)
+        except Exception as _te:
+            logger.warning("[EvolutionLoop] Could not init TreeBuilder: %s", _te)
+
+        # Seed root node once per run (idempotent)
+        _tree_root_id: Optional[str] = None
+        if _tree is not None and not state.get("_tree_seeded"):
+            topic = (
+                state.get("original_user_input")
+                or state.get("latest_user_input")
+                or state.get("implementation_task")
+                or "Evolutionary optimisation run"
+            )
+
+            def _seed_root() -> Optional[str]:
+                existing = _tree.get_root()
+                if existing:
+                    return existing["node_id"]
+                return _tree.add_root(label=topic[:200], content=topic)
+
+            _tree_root_id = self._tree_safe(_seed_root)
+
         # BOOTSTRAP: If DB is empty, ingest the baseline
         if len(self._database) == 0:
             logger.info("[EvolutionLoop] DB empty. Bootstrapping Node 0 from baseline.")
@@ -162,6 +204,41 @@ class EvolutionLoopAgent(BaseAgent):
             )
             self._database.add(node0)
             self._best_snapshot.update_if_better(node0, "step_0_baseline", working_dir / "workflow")
+
+            # --- Tree: record baseline experiment + result ---
+            if _tree is not None:
+                # Resolve root — may have been created above, or we need to fetch it
+                def _get_or_create_root() -> Optional[str]:
+                    nonlocal _tree_root_id
+                    if _tree_root_id:
+                        return _tree_root_id
+                    existing = _tree.get_root()
+                    if existing:
+                        _tree_root_id = existing["node_id"]
+                        return _tree_root_id
+                    topic = state.get("original_user_input") or "Evolutionary optimisation run"
+                    _tree_root_id = _tree.add_root(label=topic[:200], content=topic)
+                    return _tree_root_id
+
+                def _write_baseline(n0=node0) -> None:
+                    root_id = _get_or_create_root()
+                    exp_id = _tree.add_experiment(
+                        label=n0.name,
+                        content=n0.motivation,
+                        parent_id=root_id,
+                        status="completed",
+                        metadata={"gen": 0, "db_node_id": n0.id, "sota": True},
+                    )
+                    _tree.add_result(
+                        label=f"Score: {n0.score}",
+                        parent_id=exp_id,
+                        status="completed",
+                        metadata={"metric_name": "score", "value": n0.score, "gen": 0},
+                    )
+                    db_to_tree[n0.id] = exp_id
+
+                self._tree_safe(_write_baseline)
+            state["_tree_seeded"] = True
 
         # MAIN EVOLUTIONARY LOOP
         for gen in range(1, self._max_generations + 1):
@@ -253,6 +330,41 @@ class EvolutionLoopAgent(BaseAgent):
             node_id = self._database.add(new_node)
             is_new_sota = self._best_snapshot.update_if_better(new_node, f"step_{gen}_gen", working_dir / "workflow")
 
+            # --- Tree: record generation experiment + result ---
+            if _tree is not None:
+
+                def _write_gen(
+                    _gen=gen,
+                    _node=new_node,
+                    _nid=node_id,
+                    _sota=is_new_sota,
+                    _parent=parent,
+                ) -> None:
+                    # Resolve parent tree node; fall back to root if unknown
+                    parent_tree_id: Optional[str] = None
+                    if _parent is not None and _parent.id is not None:
+                        parent_tree_id = db_to_tree.get(_parent.id)
+                    if parent_tree_id is None:
+                        root = _tree.get_root()
+                        parent_tree_id = root["node_id"] if root else None
+
+                    exp_id = _tree.add_experiment(
+                        label=_node.name,
+                        content=f"Motivation: {_node.motivation}\nAnalysis: {_node.analysis[:500] if _node.analysis else ''}",
+                        parent_id=parent_tree_id,
+                        status="completed",
+                        metadata={"gen": _gen, "db_node_id": _nid, "sota": _sota},
+                    )
+                    _tree.add_result(
+                        label=f"Score: {_node.score}",
+                        parent_id=exp_id,
+                        status="completed",
+                        metadata={"metric_name": "score", "value": _node.score, "gen": _gen},
+                    )
+                    db_to_tree[_nid] = exp_id
+
+                self._tree_safe(_write_gen)
+
             sota_text = "🏆 NEW STATE-OF-THE-ART!" if is_new_sota else "📉 Did not beat best."
 
             yield Event(
@@ -270,6 +382,21 @@ class EvolutionLoopAgent(BaseAgent):
 
         # Evolution Complete
         best_node = max(self._database.get_all(), key=lambda n: n.score)
+
+        # --- Tree: mark best node's experiment ---
+        if _tree is not None:
+
+            def _mark_best(_bn=best_node) -> None:
+                if _bn.id is not None:
+                    exp_id = db_to_tree.get(_bn.id)
+                    if exp_id:
+                        _tree.update_node_status(exp_id, "completed", metadata_patch={"best": True})
+
+            self._tree_safe(_mark_best)
+
+        # --- Tree: close connection ---
+        if _tree is not None:
+            self._tree_safe(_tree.close)
 
         yield Event(
             author=self.name,
