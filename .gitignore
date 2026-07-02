@@ -51,5 +51,8 @@ data/
 agentic_output/
 experiments/
 
+# Benchmark output (CSV/Markdown/working-dirs produced by runs)
+benchmarks/cost/out/
+
 # Logs
 logs/

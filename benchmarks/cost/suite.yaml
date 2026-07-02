@@ -1,0 +1,33 @@
+# Cost benchmark task suite.
+# Keep topics short — default sweep is cheap (repetitions=1).
+# Bump repetitions for variance analysis; cost scales linearly.
+
+tasks:
+  - id: novel_aiml_small
+    topic: >
+      Propose a minimal, theoretically grounded modification to the self-attention
+      mechanism in transformers that could reduce peak memory by at least 10%.
+      Provide pseudocode and a back-of-the-envelope complexity analysis.
+    mode: novel
+    domain: aiml
+
+  - id: replication_aiml_small
+    topic: >
+      Reproduce the core BLEU-score result from "Attention is All You Need"
+      on a small-scale English-to-German translation task (≤10k sentence pairs).
+      Report the achieved BLEU, training setup, and any deviations from the paper.
+    mode: replication
+    domain: aiml
+
+  - id: evolve_aiml_small
+    topic: >
+      Optimize a two-layer MLP trained on the sklearn digits dataset to maximise
+      test accuracy. Start from a default Adam + cross-entropy baseline and evolve
+      the hyperparameters and architecture over at most 3 generations.
+    mode: evolve
+    domain: aiml
+
+defaults:
+  repetitions: 1          # increase for variance analysis; cost × repetitions
+  # Graphify and alternate engines are reserved for Phase H-Graphify / Phase I.
+  # Corresponding matrix cells are skipped automatically when those features land.
