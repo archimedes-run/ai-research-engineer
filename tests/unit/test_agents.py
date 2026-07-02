@@ -4,7 +4,7 @@ import asyncio
 import tempfile
 from pathlib import Path
 from typing import AsyncGenerator, List
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from google.adk.events import Event
 from google.genai import types
@@ -257,3 +257,181 @@ class TestSetupWorkingDirectory:
             # Should still have correct structure
             assert (working_dir / "user_data").exists()
             assert (working_dir / "pyproject.toml").exists()
+
+
+# ---------------------------------------------------------------------------
+# Helpers shared by tree tests
+# ---------------------------------------------------------------------------
+
+
+def _full_run_state():
+    """State with one stage and one criterion — simulates a full run."""
+    return {
+        "original_user_input": "Test research topic",
+        "high_level_stages": [{"index": 0, "title": "Stage 0", "description": "Do experiments", "completed": False}],
+        "high_level_success_criteria": [{"index": 0, "criteria": "accuracy > 0.9", "met": False}],
+        "stage_implementations": [],
+    }
+
+
+def _make_ctx(state: dict, session_id: str = "test-session-tree") -> "_FakeCtx":
+    ctx = _FakeCtx(state=state)
+    ctx.session.id = session_id
+    return ctx
+
+
+def _make_full_orch(checker_met=False):
+    """Orchestrator that completes one stage and (optionally) marks criteria met."""
+
+    def impl_mutation(state):
+        state["implementation_summary"] = "Implemented successfully"
+
+    def checker_mutation(state):
+        for c in state.get("high_level_success_criteria", []):
+            c["met"] = checker_met
+
+    impl = _FakeSubAgent("impl", state_mutation=impl_mutation)
+    checker = _FakeSubAgent("checker", state_mutation=checker_mutation)
+    reflector = _FakeSubAgent("reflector")
+    return StageOrchestratorAgent(
+        implementation_loop=impl,
+        criteria_checker=checker,
+        stage_reflector=reflector,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Orchestrator dual-write tests
+# ---------------------------------------------------------------------------
+
+
+class TestOrchestratorTreeDualWrite:
+    """Verify that the orchestrator dual-writes an argument tree without changing control flow."""
+
+    def test_tree_seeded_after_run(self, tmp_path):
+        """After a run, the tree contains a root, an experiment per stage, and claims per criterion."""
+        from ai_research_engineer.core.argument_tree import TreeBuilder
+
+        db = tmp_path / "orch_tree.db"
+        # Point TreeBuilder at our temp DB by patching the default
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", db):
+            orch = _make_full_orch(checker_met=True)
+            ctx = _make_ctx(_full_run_state(), session_id="orch-run-1")
+            asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        tree = TreeBuilder(run_id="orch-run-1", db_path=db)
+        try:
+            root = tree.get_root()
+            assert root is not None
+            assert "Test research topic" in root["label"]
+
+            experiments = tree.get_nodes_by_type("experiment")
+            assert len(experiments) == 1
+            assert experiments[0]["metadata"]["stage_index"] == 0
+
+            claims = tree.get_nodes_by_type("claim")
+            assert len(claims) == 1
+        finally:
+            tree.close()
+
+    def test_claim_status_flips_to_supported(self, tmp_path):
+        """When a criterion is marked met, the corresponding claim becomes 'supported'."""
+        from ai_research_engineer.core.argument_tree import TreeBuilder
+
+        db = tmp_path / "orch_claim.db"
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", db):
+            orch = _make_full_orch(checker_met=True)
+            ctx = _make_ctx(_full_run_state(), session_id="orch-run-2")
+            asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        tree = TreeBuilder(run_id="orch-run-2", db_path=db)
+        try:
+            claims = tree.get_nodes_by_type("claim")
+            assert len(claims) == 1
+            assert claims[0]["status"] == "supported"
+        finally:
+            tree.close()
+
+    def test_experiment_node_marked_completed(self, tmp_path):
+        """After a stage completes, its experiment node status is 'completed'."""
+        from ai_research_engineer.core.argument_tree import TreeBuilder
+
+        db = tmp_path / "orch_exp.db"
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", db):
+            orch = _make_full_orch(checker_met=True)
+            ctx = _make_ctx(_full_run_state(), session_id="orch-run-3")
+            asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        tree = TreeBuilder(run_id="orch-run-3", db_path=db)
+        try:
+            experiments = tree.get_nodes_by_type("experiment")
+            assert len(experiments) == 1
+            assert experiments[0]["status"] == "completed"
+        finally:
+            tree.close()
+
+    def test_result_node_created_per_stage(self, tmp_path):
+        """After the implementation loop, a result node is added under the experiment."""
+        from ai_research_engineer.core.argument_tree import TreeBuilder
+
+        db = tmp_path / "orch_result.db"
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", db):
+            orch = _make_full_orch(checker_met=True)
+            ctx = _make_ctx(_full_run_state(), session_id="orch-run-4")
+            asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        tree = TreeBuilder(run_id="orch-run-4", db_path=db)
+        try:
+            results = tree.get_nodes_by_type("result")
+            assert len(results) == 1
+            assert results[0]["content"] == "Implemented successfully"
+        finally:
+            tree.close()
+
+
+# ---------------------------------------------------------------------------
+# Failure isolation: tree errors must not affect orchestrator output
+# ---------------------------------------------------------------------------
+
+
+class TestOrchestratorTreeFailureIsolation:
+    def test_run_completes_when_treebuilder_raises_on_init(self, tmp_path):
+        """If TreeBuilder.__init__ raises, the orchestrator still completes normally.
+
+        The import is done inside _run_async_impl, so we patch the class in its
+        source module (ai_research_engineer.core.argument_tree).
+        """
+        orch = _make_full_orch(checker_met=True)
+        ctx = _make_ctx(_full_run_state(), session_id="orch-run-fail")
+
+        with patch(
+            "ai_research_engineer.core.argument_tree.TreeBuilder.__init__",
+            side_effect=RuntimeError("DB unavailable"),
+        ):
+            events = asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        # Should still get the normal completion event
+        texts = [e.content.parts[0].text for e in events if e.content and e.content.parts]
+        assert any("criteria" in t.lower() or "summary" in t.lower() or "stage" in t.lower() for t in texts)
+        assert len(events) > 0
+
+    def test_run_completes_when_tree_write_raises(self, tmp_path):
+        """If add_root raises after init, _tree_safe swallows it and the run completes."""
+        from ai_research_engineer.core.argument_tree import TreeBuilder as RealTreeBuilder
+
+        db = tmp_path / "fail_write.db"
+
+        class _BrokenTree(RealTreeBuilder):
+            def add_root(self, *a, **kw):
+                raise RuntimeError("write failed")
+
+        orch = _make_full_orch(checker_met=True)
+        ctx = _make_ctx(_full_run_state(), session_id="orch-run-fail2")
+
+        with patch(
+            "ai_research_engineer.core.argument_tree.TreeBuilder",
+            lambda run_id, **kw: _BrokenTree(run_id, db_path=db),
+        ):
+            events = asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        assert len(events) > 0

@@ -195,6 +195,28 @@ async def get_session_events(
     return RunStore.get_events(session_id, after_seq=after_seq)
 
 
+@app.get("/api/sessions/{session_id}/tree")
+async def get_session_tree(session_id: str):
+    session = RunStore.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    try:
+        from ai_research_engineer.core.argument_tree import TreeBuilder
+
+        tree = TreeBuilder(session_id)
+        try:
+            return {
+                "stats": tree.get_stats(),
+                "gaps": tree.find_gaps(),
+                "context": tree.to_context(),
+            }
+        finally:
+            tree.close()
+    except Exception as exc:
+        logger.warning("Tree read failed for session %s: %s", session_id, exc)
+        return {"stats": {"total_nodes": 0, "by_type": {}, "by_status": {}}, "gaps": [], "context": ""}
+
+
 @app.get("/api/sessions/{session_id}/stream")
 async def stream_session(
     session_id: str,
