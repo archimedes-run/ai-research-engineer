@@ -85,6 +85,20 @@ CREATE TABLE IF NOT EXISTS hitl_requests (
   created_at  TEXT,
   answered_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS usage (
+  id                  TEXT PRIMARY KEY,
+  session_id          TEXT NOT NULL,
+  seq                 INTEGER NOT NULL,
+  engine              TEXT,
+  model               TEXT,
+  input_tokens        INTEGER NOT NULL DEFAULT 0,
+  cached_input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens       INTEGER NOT NULL DEFAULT 0,
+  cost_usd            REAL    NOT NULL DEFAULT 0.0,
+  created_at          TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_usage_session ON usage(session_id);
 """
 
 # Columns we write directly; any extra keys in a session dict are stored as JSON
@@ -300,6 +314,83 @@ class RunStore:
             except (json.JSONDecodeError, TypeError):
                 pass
         return result
+
+    # ------------------------------------------------------------------
+    # Usage accounting
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def add_usage(
+        cls,
+        session_id: str,
+        seq: int,
+        input_tokens: int,
+        output_tokens: int,
+        cached_input_tokens: int = 0,
+        model: Optional[str] = None,
+        engine: Optional[str] = None,
+        cost_usd: float = 0.0,
+    ) -> None:
+        now = datetime.now().isoformat()
+        row_id = str(uuid.uuid4())
+        with _lock:
+            con = _conn()
+            try:
+                con.execute(
+                    """
+                    INSERT INTO usage(id, session_id, seq, engine, model,
+                                      input_tokens, cached_input_tokens,
+                                      output_tokens, cost_usd, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (row_id, session_id, seq, engine, model,
+                     input_tokens, cached_input_tokens,
+                     output_tokens, cost_usd, now),
+                )
+                con.commit()
+            finally:
+                con.close()
+
+    @classmethod
+    def get_usage(cls, session_id: str) -> Dict:
+        con = _conn()
+        try:
+            rows = con.execute(
+                """
+                SELECT model, engine,
+                       SUM(input_tokens)        AS input_tokens,
+                       SUM(cached_input_tokens) AS cached_input_tokens,
+                       SUM(output_tokens)       AS output_tokens,
+                       SUM(cost_usd)            AS cost_usd
+                FROM usage
+                WHERE session_id = ?
+                GROUP BY model, engine
+                ORDER BY model
+                """,
+                (session_id,),
+            ).fetchall()
+            totals_row = con.execute(
+                """
+                SELECT SUM(input_tokens)        AS input_tokens,
+                       SUM(cached_input_tokens) AS cached_input_tokens,
+                       SUM(output_tokens)       AS output_tokens,
+                       SUM(cost_usd)            AS cost_usd
+                FROM usage
+                WHERE session_id = ?
+                """,
+                (session_id,),
+            ).fetchone()
+        finally:
+            con.close()
+
+        by_model = [dict(r) for r in rows]
+        totals = dict(totals_row) if totals_row else {}
+        # Replace None sums (no rows) with 0
+        for key in ("input_tokens", "cached_input_tokens", "output_tokens", "cost_usd"):
+            if totals.get(key) is None:
+                totals[key] = 0
+
+        return {"totals": totals, "by_model": by_model}
 
     # ------------------------------------------------------------------
     # One-time JSON migration

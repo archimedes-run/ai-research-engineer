@@ -498,12 +498,15 @@ class AIEngineer:
                     usage = event.usage_metadata
                     if isinstance(usage, types.GenerateContentResponseUsageMetadata):
                         usage_info = {
-                            'total_input_tokens': usage.total_token_count,
-                            'cached_input_tokens': usage.cached_content_token_count,
-                            'output_tokens': usage.candidates_token_count,
+                            'input_tokens': getattr(usage, 'prompt_token_count', 0) or 0,
+                            'cached_input_tokens': getattr(usage, 'cached_content_token_count', 0) or 0,
+                            'output_tokens': getattr(usage, 'candidates_token_count', 0) or 0,
                         }
+                        model_name = getattr(event, 'model', None) or getattr(event, 'model_version', None)
                         usage_event = UsageEvent(
-                            usage=usage_info, timestamp=datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                            usage=usage_info,
+                            model=model_name,
+                            timestamp=datetime.now().strftime("%H:%M:%S.%f")[:-3],
                         )
                         yield event_to_dict(usage_event)
 

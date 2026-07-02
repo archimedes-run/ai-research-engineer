@@ -217,6 +217,14 @@ async def get_session_tree(session_id: str):
         return {"stats": {"total_nodes": 0, "by_type": {}, "by_status": {}}, "gaps": [], "context": ""}
 
 
+@app.get("/api/sessions/{session_id}/usage")
+async def get_session_usage(session_id: str):
+    session = RunStore.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return RunStore.get_usage(session_id)
+
+
 @app.get("/api/sessions/{session_id}/stream")
 async def stream_session(
     session_id: str,
@@ -283,10 +291,30 @@ async def _run_agent(
             domain=domain,
         )
 
+        from ai_research_engineer.core.pricing import cost_usd as _cost_usd
+
         gen = await engineer.run_async(topic, stream=True)
         async for event in gen:
             await queue.put(event)
-            RunStore.append_event(session_id, event)
+            seq = RunStore.append_event(session_id, event)
+
+            if event.get("type") == "usage":
+                u = event.get("usage", {})
+                model = event.get("model")
+                inp = u.get("input_tokens", 0) or 0
+                cached = u.get("cached_input_tokens", 0) or 0
+                out = u.get("output_tokens", 0) or 0
+                usd = _cost_usd(model, inp, out, cached)
+                RunStore.add_usage(
+                    session_id=session_id,
+                    seq=seq,
+                    input_tokens=inp,
+                    output_tokens=out,
+                    cached_input_tokens=cached,
+                    model=model,
+                    engine="adk",
+                    cost_usd=usd,
+                )
 
         duration = (datetime.now() - start_time).total_seconds()
         files_created = [
