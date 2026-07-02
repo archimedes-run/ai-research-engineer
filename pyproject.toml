@@ -88,6 +88,11 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
 pythonpath = ["."]
+markers = [
+    "integration: mark test as an integration test",
+    "slow: mark test as slow running",
+    "real: opt-in end-to-end tests that require live API keys and spend credits (run with: pytest -m real)",
+]
 
 [dependency-groups]
 dev = [

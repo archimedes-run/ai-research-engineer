@@ -33,7 +33,6 @@ from ai_research_engineer.agents.adk.utils import (
     get_generate_content_config,
     is_network_disabled,
 )
-from ai_research_engineer.agents.claude_code import ClaudeCodeAgent
 from ai_research_engineer.prompts import load_prompt
 
 
@@ -670,6 +669,9 @@ def create_agent(
     logger.info("[AIResearcher] Creating Paper Writing Loop")
 
     # 1. The Writer (Claude Code Agent - so it can write code and compile)
+    # Lazy import breaks the claude_code ↔ adk circular dependency at module load time.
+    from ai_research_engineer.agents.claude_code import ClaudeCodeAgent  # noqa: PLC0415
+
     paper_writer_agent = ClaudeCodeAgent(
         name="paper_writer_agent",
         description="Drafts the academic manuscript in LaTeX and compiles it to PDF.",
