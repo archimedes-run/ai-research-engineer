@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import AsyncGenerator, Dict, List, Optional
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request, Security
+from fastapi import FastAPI, HTTPException, Query, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
@@ -166,6 +166,8 @@ def _check_rate_limit(ip: str) -> None:
 
 # session_id → asyncio.Queue; present only while agent is running
 _active_sessions: Dict[str, asyncio.Queue] = {}
+# session_id → asyncio.Task; cancelled by the stop endpoint
+_active_tasks: Dict[str, "asyncio.Task[None]"] = {}
 
 
 @asynccontextmanager
@@ -233,7 +235,6 @@ async def get_session(session_id: str):
 async def create_session(
     request: Request,
     body: RunSessionRequest,
-    background_tasks: BackgroundTasks,
     _: None = Security(_require_token),
 ):
     # Rate limit by client IP
@@ -264,18 +265,18 @@ async def create_session(
 
     queue: asyncio.Queue = asyncio.Queue()
     _active_sessions[session_id] = queue
-
-    background_tasks.add_task(
-        _run_agent,
-        session_id,
-        body.topic,
-        body.agent_type,
-        body.domain,
-        body.research_mode,
-        body.template,
-        body.use_graphify,
-        body.hitl_enabled,
-        queue,
+    _active_tasks[session_id] = asyncio.create_task(
+        _run_agent(
+            session_id,
+            body.topic,
+            body.agent_type,
+            body.domain,
+            body.research_mode,
+            body.template,
+            body.use_graphify,
+            body.hitl_enabled,
+            queue,
+        )
     )
 
     return {"session_id": session_id, "display_id": display_id}
@@ -345,7 +346,6 @@ async def get_session_hitl(session_id: str):
 async def answer_hitl(
     session_id: str,
     body: dict,
-    background_tasks: BackgroundTasks,
     _: None = Security(_require_token),
 ):
     session = RunStore.get_session(session_id)
@@ -368,13 +368,8 @@ async def answer_hitl(
     queue: asyncio.Queue = asyncio.Queue()
     _active_sessions[session_id] = queue
     RunStore.update_session(session_id, {"status": "running"})
-
-    background_tasks.add_task(
-        _run_agent_resume,
-        session_id,
-        pending["stage_key"],
-        answer,
-        queue,
+    _active_tasks[session_id] = asyncio.create_task(
+        _run_agent_resume(session_id, pending["stage_key"], answer, queue)
     )
 
     return {"status": "resuming", "request_id": pending["request_id"]}
@@ -383,7 +378,6 @@ async def answer_hitl(
 @app.post("/api/sessions/{session_id}/resume")
 async def resume_session(
     session_id: str,
-    background_tasks: BackgroundTasks,
     _: None = Security(_require_token),
 ):
     """Resume a session that is awaiting_input without providing a new answer
@@ -404,15 +398,48 @@ async def resume_session(
     _active_sessions[session_id] = queue
     RunStore.update_session(session_id, {"status": "running"})
 
-    background_tasks.add_task(
-        _run_agent_resume,
-        session_id,
-        checkpoint["stage_key"],
-        None,
-        queue,
+    _active_tasks[session_id] = asyncio.create_task(
+        _run_agent_resume(session_id, checkpoint["stage_key"], None, queue)
     )
 
     return {"status": "resuming"}
+
+
+@app.post("/api/sessions/{session_id}/stop")
+async def stop_session(
+    session_id: str,
+    _: None = Security(_require_token),
+):
+    session = RunStore.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session_id not in _active_sessions:
+        raise HTTPException(status_code=409, detail="Session is not currently running")
+
+    # Mark interrupted before cancelling so status is consistent even if task
+    # is slow to notice the CancelledError.
+    RunStore.update_session(
+        session_id,
+        {"status": "interrupted", "completed_at": datetime.now().isoformat()},
+    )
+
+    stop_event = {
+        "type": "error",
+        "content": "Session stopped by user.",
+        "timestamp": datetime.now().strftime("%H:%M:%S"),
+    }
+    queue = _active_sessions.pop(session_id, None)
+    task = _active_tasks.pop(session_id, None)
+
+    if queue:
+        await queue.put(stop_event)
+        RunStore.append_event(session_id, stop_event)
+        await queue.put(None)  # close SSE stream
+
+    if task and not task.done():
+        task.cancel()
+
+    return {"status": "interrupted"}
 
 
 @app.get("/api/sessions/{session_id}/usage")
@@ -621,6 +648,7 @@ async def _run_agent(
     finally:
         await queue.put(None)  # sentinel to close SSE connections
         _active_sessions.pop(session_id, None)
+        _active_tasks.pop(session_id, None)
 
 
 async def _run_agent_resume(
@@ -730,3 +758,4 @@ async def _run_agent_resume(
     finally:
         await queue.put(None)
         _active_sessions.pop(session_id, None)
+        _active_tasks.pop(session_id, None)
