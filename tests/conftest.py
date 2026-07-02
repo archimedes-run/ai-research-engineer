@@ -41,3 +41,17 @@ def pytest_configure(config):
     """Configure pytest with custom markers."""
     config.addinivalue_line("markers", "integration: mark test as an integration test")
     config.addinivalue_line("markers", "slow: mark test as slow running")
+    config.addinivalue_line(
+        "markers",
+        "real: opt-in end-to-end tests requiring live API keys; skipped by default (run with: pytest -m real)",
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-skip tests marked 'real' unless the user explicitly selects them with -m real."""
+    mark_expr = getattr(config.option, "markexpr", "") or ""
+    if "real" not in mark_expr:
+        skip_real = pytest.mark.skip(reason="real tests are opt-in; run with: pytest -m real")
+        for item in items:
+            if item.get_closest_marker("real"):
+                item.add_marker(skip_real)
