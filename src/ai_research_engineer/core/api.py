@@ -26,6 +26,7 @@ from ai_research_engineer.core.events import (
     FunctionResponseEvent,
     MessageEvent,
     UsageEvent,
+    VerificationEvent,
     event_to_dict,
 )
 
@@ -515,6 +516,25 @@ class AIEngineer:
                             timestamp=datetime.now().strftime("%H:%M:%S.%f")[:-3],
                         )
                         yield event_to_dict(usage_event)
+
+            # Emit VerificationEvent if the reference_verifier_agent ran
+            try:
+                session = getattr(self, "session", None)
+                if session is not None:
+                    v = session.state.get("_verification_counts")
+                    if v:
+                        ver_event = VerificationEvent(
+                            total=v.get("total", 0),
+                            verified=v.get("verified", 0),
+                            not_found=v.get("not_found", 0),
+                            unverified=v.get("unverified", 0),
+                            hallucinated=v.get("hallucinated", 0),
+                            report_path=v.get("report_path", ""),
+                            timestamp=datetime.now().strftime("%H:%M:%S.%f")[:-3],
+                        )
+                        yield event_to_dict(ver_event)
+            except Exception as _ve:
+                logger.warning("VerificationEvent emission failed (fail-soft): %s", _ve)
 
             # Compile LaTeX into PDF at the end of the workflow
             self._compile_latex()

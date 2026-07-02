@@ -970,6 +970,13 @@ def create_agent(
         
     workflow_agents.append(paper_writing_loop)  # Finally, write the paper
 
+    # Reference verifier runs after writing but before _compile_latex() in api.py.
+    # It is a non-LLM BaseAgent: no API spend, fail-soft, non-blocking.
+    from ai_research_engineer.agents.adk.reference_verifier import ReferenceVerifierAgent  # noqa: PLC0415
+
+    reference_verifier_agent = ReferenceVerifierAgent(working_dir=str(working_dir))
+    workflow_agents.append(reference_verifier_agent)
+
     workflow = SequentialAgent(
         name="ai_research_engineer_workflow",
         description="Complete AI Research Engineer workflow with adaptive stage-wise implementation.",

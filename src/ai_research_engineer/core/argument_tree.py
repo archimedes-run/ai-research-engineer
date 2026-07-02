@@ -39,6 +39,8 @@ VALID_NODE_TYPES = {
     "result",
     "artifact",
     "hypothesis",
+    # Verification / integrity notes
+    "audit_note",
 }
 
 VALID_STATUSES = {
@@ -306,6 +308,18 @@ class TreeBuilder:
         metadata: Optional[Dict] = None,
     ) -> str:
         return self._insert("hypothesis", label, content=content, parent_id=parent_id, status=status, metadata=metadata)
+
+    def add_audit_note(
+        self,
+        label: str,
+        content: Optional[str] = None,
+        parent_id: Optional[str] = None,
+        metadata: Optional[Dict] = None,
+    ) -> str:
+        """Add an audit/integrity note node (e.g. citation verification summary)."""
+        return self._insert(
+            "audit_note", label, content=content, parent_id=parent_id, status="completed", metadata=metadata
+        )
 
     # ------------------------------------------------------------------
     # Node mutation

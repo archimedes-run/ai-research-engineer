@@ -101,6 +101,19 @@ class CompletedEvent(BaseEvent):
     files_count: int = 0
 
 
+@dataclass
+class VerificationEvent(BaseEvent):
+    """Citation/reference verification summary event emitted after paper_writing_loop."""
+
+    type: Literal["verification"] = "verification"
+    total: int = 0
+    verified: int = 0
+    not_found: int = 0
+    unverified: int = 0
+    hallucinated: int = 0
+    report_path: str = ""
+
+
 # Type union for all event types
 StreamingEvent = (
     MessageEvent
@@ -111,6 +124,7 @@ StreamingEvent = (
     | KeepaliveEvent
     | ErrorEvent
     | CompletedEvent
+    | VerificationEvent
 )
 
 
@@ -124,6 +138,7 @@ EVENT_TYPE_MAP = {
     "keepalive": KeepaliveEvent,
     "error": ErrorEvent,
     "completed": CompletedEvent,
+    "verification": VerificationEvent,
 }
 
 

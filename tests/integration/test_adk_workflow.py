@@ -29,7 +29,7 @@ class TestADKWorkflow:
             agent = create_agent(working_dir=tmpdir)
             # SequentialAgent has sub_agents
             assert hasattr(agent, 'sub_agents')
-            assert len(agent.sub_agents) == 5  # planning_loop, parser, orchestrator, summary, paper_writer
+            assert len(agent.sub_agents) == 6  # ideation, planning, parser, orchestrator, paper_writer, reference_verifier
 
     def test_agent_with_tools_integration(self):
         """Test agent creation with local tools integration."""
