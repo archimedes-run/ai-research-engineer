@@ -655,6 +655,7 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
 
   const [activeTab, setActiveTab] = useState<Tab>('activity')
   const [editingPath, setEditingPath] = useState<string | null>(null)
+  const [chatMsg, setChatMsg] = useState('')
 
   // Stage tracking
   const [completedStages, setCompletedStages] = useState<Set<string>>(new Set())
@@ -866,6 +867,50 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
           {activeTab === 'graph' && <KnowledgeGraphTab />}
           {activeTab === 'inspector' && <InspectorTab treeData={treeData} />}
         </div>
+
+        {/* ── Chat / HITL input bar ─────────────────────────────────────── */}
+        <div className="flex-shrink-0 border-t px-4 py-3" style={{ borderColor: C.border, background: C.surface }}>
+          <div className="max-w-3xl mx-auto flex items-end gap-3">
+            <div className="flex-1 rounded-xl border overflow-hidden" style={{ borderColor: C.border, background: C.bg }}>
+              <textarea
+                rows={1}
+                value={chatMsg}
+                onChange={e => {
+                  setChatMsg(e.target.value)
+                  // auto-grow: reset then set to scrollHeight
+                  e.target.style.height = 'auto'
+                  e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`
+                }}
+                placeholder="Send a message to the agent…"
+                className="w-full px-4 py-2.5 text-sm leading-relaxed resize-none outline-none block"
+                style={{
+                  fontFamily: 'var(--font-outfit)',
+                  color: C.text,
+                  background: 'transparent',
+                  height: 40,
+                  minHeight: 40,
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault() }
+                }}
+              />
+            </div>
+            <div className="flex flex-col items-end gap-1 flex-shrink-0">
+              <button
+                disabled
+                className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 cursor-not-allowed"
+                style={{ background: C.border, color: C.muted }}
+                title="Human-in-the-loop — coming soon"
+              >
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              <span className="text-xs whitespace-nowrap" style={{ color: C.muted, fontFamily: 'var(--font-outfit)' }}>HITL — soon</span>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   )
