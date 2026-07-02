@@ -506,6 +506,61 @@ class TreeBuilder:
         lines.append(f"\nTotal: {stats['total_nodes']} nodes — {stats['by_type']}")
         return "\n".join(lines)
 
+    def to_graph(self) -> Dict[str, Any]:
+        """Return all nodes and edges as ``{"nodes": [...], "edges": [...]}``.
+
+        Every VALID_NODE_TYPE is included, including ``audit_note``.
+        Edges: ``parent`` (parent→child tree links) and ``citation``
+        (source→node links from the ``sources`` table).
+        Redaction of secrets is intentionally NOT performed here; callers
+        (e.g. the /tree endpoint) apply ``_redact_secrets`` before serving.
+        """
+        rows = self._con.execute(
+            """SELECT node_id, type, label, status, parent_id, metadata
+               FROM argument_tree WHERE run_id = ? ORDER BY created_at""",
+            (self.run_id,),
+        ).fetchall()
+
+        src_rows = self._con.execute(
+            "SELECT source_id, node_id FROM sources WHERE run_id = ?",
+            (self.run_id,),
+        ).fetchall()
+        node_source_ids: Dict[str, List[str]] = {}
+        for s in src_rows:
+            node_source_ids.setdefault(s["node_id"], []).append(s["source_id"])
+
+        graph_nodes = []
+        edges = []
+
+        for r in rows:
+            node_id = r["node_id"]
+            try:
+                meta = json.loads(r["metadata"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                meta = {}
+
+            src_ids = node_source_ids.get(node_id, [])
+            graph_nodes.append(
+                {
+                    "id": node_id,
+                    "type": r["type"],
+                    "label": r["label"],
+                    "status": r["status"],
+                    "confidence": meta.get("confidence"),
+                    "parent_id": r["parent_id"],
+                    "source_ids": src_ids,
+                    "metadata": meta,
+                }
+            )
+
+            if r["parent_id"]:
+                edges.append({"source": r["parent_id"], "target": node_id, "relation": "parent"})
+
+            for sid in src_ids:
+                edges.append({"source": sid, "target": node_id, "relation": "citation"})
+
+        return {"nodes": graph_nodes, "edges": edges}
+
     def to_reference_list(self) -> List[Dict]:
         """Return sources as a flat list for bibliography / citation building."""
         rows = self._con.execute(

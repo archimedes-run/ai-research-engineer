@@ -228,3 +228,77 @@ def test_to_context_non_empty(tree):
     ctx = tree.to_context()
     assert "ROOT" in ctx
     assert "EXPERIMENT" in ctx
+
+
+# ---------------------------------------------------------------------------
+# to_graph
+# ---------------------------------------------------------------------------
+
+
+def test_to_graph_empty(tree):
+    graph = tree.to_graph()
+    assert graph == {"nodes": [], "edges": []}
+
+
+def test_to_graph_single_root(tree):
+    root_id = tree.add_root("Root question", metadata={"confidence": 0.9})
+    graph = tree.to_graph()
+    assert len(graph["nodes"]) == 1
+    assert graph["edges"] == []
+    node = graph["nodes"][0]
+    assert node["id"] == root_id
+    assert node["type"] == "root"
+    assert node["label"] == "Root question"
+    assert node["status"] == "active"
+    assert node["confidence"] == 0.9
+    assert node["parent_id"] is None
+    assert node["source_ids"] == []
+
+
+def test_to_graph_parent_edge(tree):
+    root_id = tree.add_root("Root")
+    hyp_id = tree.add_hypothesis("H1", parent_id=root_id)
+    graph = tree.to_graph()
+    assert {"source": root_id, "target": hyp_id, "relation": "parent"} in graph["edges"]
+
+
+def test_to_graph_all_archimedes_node_types(tree):
+    root_id = tree.add_root("Root")
+    tree.add_experiment("E1", parent_id=root_id, metadata={"stage_index": 0})
+    tree.add_claim("C1", parent_id=root_id)
+    tree.add_hypothesis("H1", parent_id=root_id)
+    tree.add_audit_note("A1", parent_id=root_id)
+    tree.add_artifact("file.csv", parent_id=root_id)
+    tree.add_result("R1", parent_id=root_id)
+    graph = tree.to_graph()
+    types_seen = {n["type"] for n in graph["nodes"]}
+    assert {"root", "experiment", "claim", "hypothesis", "audit_note", "artifact", "result"}.issubset(types_seen)
+
+
+def test_to_graph_no_secrets_redacted_by_model(tree):
+    """to_graph() returns raw data; secret redaction is the endpoint's responsibility."""
+    tree.add_root("api_key=sk-ABC12345678901234567")
+    graph = tree.to_graph()
+    assert "api_key" in graph["nodes"][0]["label"]
+
+
+def test_to_graph_run_isolation(tmp_path):
+    db = tmp_path / "shared.db"
+    t1 = TreeBuilder(run_id="g-run-A", db_path=db)
+    t2 = TreeBuilder(run_id="g-run-B", db_path=db)
+    t1.add_root("Root A")
+    t1.add_experiment("Exp A", parent_id=t1.get_root()["node_id"])
+    t2.add_root("Root B")
+    assert len(t1.to_graph()["nodes"]) == 2
+    assert len(t2.to_graph()["nodes"]) == 1
+    t1.close()
+    t2.close()
+
+
+def test_to_graph_metadata_preserved(tree):
+    root_id = tree.add_root("Root")
+    tree.add_experiment("E1", parent_id=root_id, metadata={"stage_index": 3, "title": "My Stage"})
+    graph = tree.to_graph()
+    exp_node = next(n for n in graph["nodes"] if n["type"] == "experiment")
+    assert exp_node["metadata"]["stage_index"] == 3
+    assert exp_node["metadata"]["title"] == "My Stage"

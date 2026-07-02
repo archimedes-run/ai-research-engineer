@@ -297,16 +297,34 @@ async def get_session_tree(session_id: str):
 
         tree = TreeBuilder(session_id)
         try:
+            raw_graph = tree.to_graph()
+            redacted_nodes = []
+            for node in raw_graph["nodes"]:
+                node = dict(node)
+                node["label"], _ = _redact_secrets(node.get("label", ""))
+                meta = node.get("metadata") or {}
+                node["metadata"] = {
+                    k: _redact_secrets(v)[0] if isinstance(v, str) else v
+                    for k, v in meta.items()
+                }
+                redacted_nodes.append(node)
+            graph = {"nodes": redacted_nodes, "edges": raw_graph["edges"]}
             return {
                 "stats": tree.get_stats(),
                 "gaps": tree.find_gaps(),
                 "context": tree.to_context(),
+                "graph": graph,
             }
         finally:
             tree.close()
     except Exception as exc:
         logger.warning("Tree read failed for session %s: %s", session_id, exc)
-        return {"stats": {"total_nodes": 0, "by_type": {}, "by_status": {}}, "gaps": [], "context": ""}
+        return {
+            "stats": {"total_nodes": 0, "by_type": {}, "by_status": {}},
+            "gaps": [],
+            "context": "",
+            "graph": {"nodes": [], "edges": []},
+        }
 
 
 @app.get("/api/sessions/{session_id}/usage")

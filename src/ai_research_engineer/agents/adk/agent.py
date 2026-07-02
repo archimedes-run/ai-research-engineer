@@ -957,11 +957,22 @@ def create_agent(
 
     logger.info("[AIResearcher] Creating root workflow")
 
+    # Non-LLM tree-observability agents (fail-soft, no API spend)
+    from ai_research_engineer.agents.adk.tree_seed_agents import (  # noqa: PLC0415
+        IdeationTreeAgent,
+        PlanningTreeAgent,
+    )
+
+    ideation_tree_agent = IdeationTreeAgent(working_dir=str(working_dir))
+    planning_tree_agent = PlanningTreeAgent(working_dir=str(working_dir))
+
     # Build the sequential queue based on the mode
     workflow_agents = [
         ideation_loop,              # Brainstorms OR extracts specs based on mode
+        ideation_tree_agent,        # Records hypothesis in tree (observability only)
         high_level_planning_loop,   # THEN plans out the execution
         high_level_plan_parser,
+        planning_tree_agent,        # Records stages/criteria in tree (observability only)
         stage_orchestrator,         # Builds the seed baseline and eval.sh
     ]
     
