@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowRight, ChevronDown, FlaskConical, Globe } from 'lucide-react'
+import { ArrowRight, ChevronDown, Eye, FlaskConical, Globe, Zap } from 'lucide-react'
 import { apiUrl } from '@/lib/api'
 import { MODES, DOMAINS, modeToPayload, type Mode, type Domain } from '@/lib/options'
 
@@ -41,6 +41,7 @@ const C = {
   brand: '#E05240',
   green: '#1E8A3E',
   amber: '#B07010',
+  blue: '#2563EB',
   sidebar: '#EDE5DC',
 }
 
@@ -161,6 +162,7 @@ export default function CockpitPage() {
   const [topic, setTopic] = useState('')
   const [mode, setMode] = useState<Mode>('novel')
   const [domain, setDomain] = useState<Domain>('aiml')
+  const [hitlEnabled, setHitlEnabled] = useState(false)
   const [launching, setLaunching] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
@@ -195,7 +197,7 @@ export default function CockpitPage() {
       const res = await fetch(apiUrl('/api/sessions'), {
         method: 'POST',
         headers: apiHeaders(),
-        body: JSON.stringify({ topic: topic.trim(), domain, ...modeToPayload(mode) }),
+        body: JSON.stringify({ topic: topic.trim(), domain, ...modeToPayload(mode), hitl_enabled: hitlEnabled }),
       })
       if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`)
       const { session_id } = await res.json()
@@ -344,6 +346,25 @@ export default function CockpitPage() {
                   value={domain}
                   onChange={setDomain}
                 />
+
+                {/* Supervised / Autonomous toggle */}
+                <button
+                  type="button"
+                  onClick={() => setHitlEnabled(v => !v)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs transition-all"
+                  style={{
+                    borderColor: hitlEnabled ? C.blue : C.border,
+                    background: hitlEnabled ? `${C.blue}08` : C.surface,
+                    color: hitlEnabled ? C.blue : C.muted,
+                    fontFamily: 'var(--font-outfit)',
+                  }}
+                  title={hitlEnabled ? 'Supervised: pauses for your review at key gates' : 'Autonomous: runs end-to-end without interruption'}
+                >
+                  {hitlEnabled
+                    ? <Eye className="w-3.5 h-3.5" />
+                    : <Zap className="w-3.5 h-3.5" />}
+                  {hitlEnabled ? 'Supervised' : 'Autonomous'}
+                </button>
 
                 {/* Submit — arrow icon only */}
                 <button

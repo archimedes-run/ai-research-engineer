@@ -20,7 +20,7 @@ interface UsageEvent extends BaseEvent { type: 'usage'; model?: string; usage?: 
 interface CompletedEvent extends BaseEvent { type: 'completed'; duration?: number; files_created?: string[] }
 interface ErrorEvent extends BaseEvent { type: 'error'; content: string }
 interface StageEvent extends BaseEvent { type: 'stage'; stage?: string; label?: string }
-interface HitlEvent extends BaseEvent { type: 'hitl_request'; question?: string; options?: string[] }
+interface HitlEvent extends BaseEvent { type: 'hitl_request'; request_id?: string; gate_key?: string; question?: string; context_md?: string; options?: string[] }
 
 type FeedEvent = { type: string; seq?: number; timestamp?: string; [key: string]: unknown }
 
@@ -28,7 +28,7 @@ interface FileNode { path: string; type: 'file' | 'dir'; size: number; children?
 interface FileContent { path: string; content?: string; binary?: boolean; too_large?: boolean; size?: number; redacted?: boolean }
 interface UsageTotals { input_tokens: number; cached_input_tokens: number; output_tokens: number; cost_usd: number }
 interface UsageResponse { totals: UsageTotals; by_model: { model: string; cost_usd: number }[] }
-interface Session { session_id: string; display_id: string; topic: string; status: string; agent_type: string; research_mode: string; started_at: string }
+interface Session { session_id: string; display_id: string; topic: string; status: string; agent_type: string; research_mode: string; started_at: string; hitl_enabled?: boolean | number }
 interface TreeData { stats: { total_nodes: number; by_type: Record<string, number> }; gaps: { reason?: string }[] }
 
 function apiHeaders(): HeadersInit {
@@ -126,6 +126,7 @@ function inferStageFromEvent(ev: FeedEvent): string | null {
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; color: string; pulse: boolean }> = {
     running: { label: 'running', color: C.amber, pulse: true },
+    awaiting_input: { label: 'waiting for you', color: C.amber, pulse: true },
     completed: { label: 'done', color: C.green, pulse: false },
     error: { label: 'error', color: C.brand, pulse: false },
     failed: { label: 'failed', color: C.brand, pulse: false },
@@ -291,15 +292,97 @@ function ToolRow({ ev, index, events }: { ev: FunctionCallEvent; index: number; 
   )
 }
 
-function HitlCard({ ev }: { ev: HitlEvent }) {
+function HitlCard({ ev, runId, onAnswered }: { ev: HitlEvent; runId?: string; onAnswered?: () => void }) {
+  const [answer, setAnswer] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [submitted, setSubmitted] = useState(false)
+  const [fetchedQ, setFetchedQ] = useState<string | null>(null)
+  const [fetchedCtx, setFetchedCtx] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!runId) return
+    fetch(apiUrl(`/api/sessions/${runId}/hitl`), { headers: apiHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { pending?: { question?: string; context_md?: string } } | null) => {
+        if (d?.pending) {
+          if (d.pending.question) setFetchedQ(d.pending.question)
+          if (d.pending.context_md) setFetchedCtx(d.pending.context_md)
+        }
+      })
+      .catch(() => null)
+  }, [runId])
+
+  const question = fetchedQ ?? ev.question ?? ''
+  const contextMd = fetchedCtx ?? ev.context_md ?? ''
+
+  async function submit(ans: string) {
+    if (!runId || submitting || submitted) return
+    setSubmitting(true)
+    try {
+      const r = await fetch(apiUrl(`/api/sessions/${runId}/answer`), {
+        method: 'POST',
+        headers: apiHeaders(),
+        body: JSON.stringify({ answer: ans }),
+      })
+      if (r.ok) { setSubmitted(true); onAnswered?.() }
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (submitted) return (
+    <div className="rounded-xl border px-4 py-3 my-4" style={{ borderColor: `${C.green}40`, background: `${C.green}08` }}>
+      <span className="text-xs font-semibold" style={{ color: C.green }}>✓ Response submitted — resuming…</span>
+    </div>
+  )
+
   return (
     <div className="rounded-xl border px-4 py-4 my-4" style={{ borderColor: `${C.amber}40`, background: `${C.amber}08` }}>
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center gap-2 mb-3">
         <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: C.amber }} />
-        <span className="text-xs tracking-widest uppercase font-semibold" style={{ color: C.amber }}>Awaiting input</span>
-        <span className="ml-auto text-xs px-2 py-0.5 rounded border" style={{ color: C.muted, borderColor: C.border }}>Phase C</span>
+        <span className="text-xs tracking-widest uppercase font-semibold" style={{ color: C.amber }}>Awaiting your review</span>
       </div>
-      {ev.question && <p className="text-sm mt-2" style={{ color: C.text }}>{ev.question}</p>}
+      {question && <p className="text-sm mb-3" style={{ color: C.text }}>{question}</p>}
+      {contextMd && (
+        <pre className="text-xs rounded-lg p-3 mb-3 border overflow-auto" style={{ borderColor: C.border, background: C.surface, color: C.muted, fontFamily: 'var(--font-fira-code)', whiteSpace: 'pre-wrap', maxHeight: 160 }}>
+          {contextMd}
+        </pre>
+      )}
+      {runId && (
+        <div className="flex items-center gap-2 mt-1">
+          <button
+            onClick={() => submit('approve')}
+            disabled={submitting}
+            className="text-xs px-3 py-1.5 rounded-lg border font-medium transition-all flex-shrink-0"
+            style={{ borderColor: `${C.green}50`, background: submitting ? 'transparent' : `${C.green}10`, color: submitting ? C.muted : C.green, cursor: submitting ? 'not-allowed' : 'pointer' }}
+          >
+            {submitting ? 'Submitting…' : 'Approve & continue'}
+          </button>
+          <textarea
+            value={answer}
+            onChange={e => setAnswer(e.target.value)}
+            placeholder="Or type feedback…"
+            rows={1}
+            disabled={submitting}
+            className="flex-1 text-xs px-3 py-1.5 rounded-lg border outline-none resize-none"
+            style={{ borderColor: C.border, background: C.surface, color: C.text, fontFamily: 'var(--font-outfit)', minHeight: 34 }}
+            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (answer.trim()) submit(answer.trim()) } }}
+          />
+          <button
+            onClick={() => { if (answer.trim()) submit(answer.trim()) }}
+            disabled={!answer.trim() || submitting}
+            className="text-xs px-3 py-1.5 rounded-lg border font-medium transition-all flex-shrink-0"
+            style={{
+              borderColor: answer.trim() && !submitting ? `${C.brand}50` : C.border,
+              background: answer.trim() && !submitting ? `${C.brand}10` : 'transparent',
+              color: answer.trim() && !submitting ? C.brand : C.muted,
+              cursor: answer.trim() && !submitting ? 'pointer' : 'not-allowed',
+            }}
+          >
+            Submit
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -337,7 +420,6 @@ function FeedRow({ ev, index, events }: { ev: FeedEvent; index: number; events: 
       <div className="flex-1 h-px" style={{ background: C.border2 }} />
     </div>
   }
-  if (ev.type === 'hitl_request') return <HitlCard ev={ev as unknown as HitlEvent} />
   if (ev.type === 'completed') return <TerminalBanner type="completed" ev={ev} />
   if (ev.type === 'error') return <TerminalBanner type="error" ev={ev} />
   if (ev.type === 'keepalive' || ev.type === 'usage') return null
@@ -652,6 +734,8 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
   const [isTerminal, setIsTerminal] = useState(false)
   const feedEndRef = useRef<HTMLDivElement>(null)
   const seenSeqs = useRef(new Set<number>())
+  const lastSeqRef = useRef(0)
+  const [sseVersion, setSseVersion] = useState(0)
 
   const [activeTab, setActiveTab] = useState<Tab>('activity')
   const [editingPath, setEditingPath] = useState<string | null>(null)
@@ -682,7 +766,7 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
         if (!d) return
         setSession(d)
         setStartedAt(new Date(d.started_at))
-        if (d.status !== 'running') setIsTerminal(true)
+        if (d.status !== 'running' && d.status !== 'awaiting_input') setIsTerminal(true)
       }).catch(() => null)
   }, [runId])
 
@@ -739,23 +823,37 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
   // ---------------------------------------------------------------------------
   // SSE
   // ---------------------------------------------------------------------------
+  const handleAnswered = useCallback(() => {
+    setSseVersion(v => v + 1)
+  }, [])
+
   useEffect(() => {
     let es: EventSource | null = null
     let cancelled = false
     async function start() {
-      const res = await fetch(apiUrl(`/api/sessions/${runId}/events?after_seq=0`), { headers: apiHeaders() }).catch(() => null)
+      const afterSeq = lastSeqRef.current
+      const res = await fetch(apiUrl(`/api/sessions/${runId}/events?after_seq=${afterSeq}`), { headers: apiHeaders() }).catch(() => null)
       if (cancelled || !res?.ok) return
       const backfill: FeedEvent[] = await res.json().catch(() => [])
       if (cancelled) return
-      let maxSeq = 0
-      for (const ev of backfill) { processEvent(ev); if ((ev.seq ?? 0) > maxSeq) maxSeq = ev.seq ?? 0 }
-      es = new EventSource(apiUrl(`/api/sessions/${runId}/stream?after_seq=${maxSeq}`))
-      es.onmessage = e => { try { processEvent(JSON.parse(e.data)) } catch { /* ignore */ } }
+      for (const ev of backfill) {
+        processEvent(ev)
+        if ((ev.seq ?? 0) > lastSeqRef.current) lastSeqRef.current = ev.seq ?? 0
+      }
+      es = new EventSource(apiUrl(`/api/sessions/${runId}/stream?after_seq=${lastSeqRef.current}`))
+      es.onmessage = e => {
+        try {
+          const ev: FeedEvent = JSON.parse(e.data)
+          if ((ev.seq ?? 0) > lastSeqRef.current) lastSeqRef.current = ev.seq ?? 0
+          processEvent(ev)
+          if (ev.type === 'hitl_request') es?.close()
+        } catch { /* ignore */ }
+      }
       es.onerror = () => es?.close()
     }
     start()
     return () => { cancelled = true; es?.close() }
-  }, [runId, processEvent])
+  }, [runId, processEvent, sseVersion])
 
   // Auto-scroll sidebar feed
   useEffect(() => { feedEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [events])
@@ -807,6 +905,11 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-mono" style={{ color: C.muted }}>{session?.display_id ?? runId.slice(0, 16)}</span>
             <StatusBadge status={statusLabel} />
+            {session && (session.hitl_enabled ? (
+              <span className="text-xs px-1.5 py-0.5 rounded border flex-shrink-0" style={{ borderColor: `${C.blue}40`, color: C.blue, background: `${C.blue}08` }}>Supervised</span>
+            ) : (
+              <span className="text-xs px-1.5 py-0.5 rounded border flex-shrink-0" style={{ borderColor: C.border, color: C.muted }}>Auto</span>
+            ))}
           </div>
           {session?.topic && <p className="text-sm leading-snug mt-1" style={{ color: C.text }}>{session.topic}</p>}
           <div className="flex items-center gap-3 mt-2 text-xs" style={{ color: C.muted }}>
@@ -859,7 +962,11 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
                   Connecting to stream…
                 </div>
               )}
-              {events.map((ev, i) => <FeedRow key={ev.seq ?? `ev-${i}`} ev={ev} index={i} events={events} />)}
+              {events.map((ev, i) =>
+                ev.type === 'hitl_request'
+                  ? <HitlCard key={ev.seq ?? `ev-${i}`} ev={ev as unknown as HitlEvent} runId={runId} onAnswered={handleAnswered} />
+                  : <FeedRow key={ev.seq ?? `ev-${i}`} ev={ev} index={i} events={events} />
+              )}
             </div>
           )}
           {activeTab === 'paper' && <PaperViewer runId={runId} isTerminal={isTerminal} />}
