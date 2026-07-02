@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 REPO_ROOT := $(shell pwd)
 
-.PHONY: dev up stop install test lint clean help
+.PHONY: dev up stop install test lint clean help format lint-frontend build-frontend
 
 dev: ## Start local dev stack (gateway :8001, frontend :3000, nginx :8080)
 	@./scripts/serve.sh --dev
@@ -27,5 +27,14 @@ clean: ## Remove runtime data and output artifacts
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+format: ## Format backend with ruff
+	@uv run ruff format src/ tests/
+
+lint-frontend: ## Lint the frontend
+	@cd frontend && npm run lint
+
+build-frontend: ## Production build of the frontend (Vercel parity)
+	@cd frontend && npm run build
 
 .DEFAULT_GOAL := help

@@ -157,6 +157,18 @@ async for event in engineer.run_async(prompt, stream=True):
 
 ---
 
+## Local development
+
+```bash
+make install   # uv sync + npm install
+make dev       # gateway :8001, frontend :3000, nginx :8080
+# open http://localhost:8080
+```
+
+The landing page and docs are deployed to Vercel automatically on every push to `main`. Vercel builds only the `frontend/` directory, so backend changes and dev-tooling updates (`Makefile`, `scripts/`, `src/`) never affect the production frontend build.
+
+---
+
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) for the full plan. Current focus: **Phase 0 (Foundation)** and **Phase 1 (Stabilise the core)**.
