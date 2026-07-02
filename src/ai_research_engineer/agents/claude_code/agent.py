@@ -373,6 +373,24 @@ class ClaudeCodeAgent(Agent):
             # Set up working directory
             setup_working_directory(working_dir)
 
+            # Install graphify MCP hooks so Claude Code picks them up (fail-soft)
+            if state.get("use_graphify"):
+                try:
+                    import subprocess as _sp
+
+                    from ai_research_engineer.core.graphify import graphify_available
+
+                    if graphify_available():
+                        _sp.run(
+                            ["python", "-m", "graphify", "claude", "install"],
+                            cwd=working_dir,
+                            capture_output=True,
+                            timeout=30,
+                        )
+                        logger.info("[Claude Code] graphify claude install done in %s", working_dir)
+                except Exception as _ge:
+                    logger.warning("[Claude Code] graphify claude install failed: %s", _ge)
+
             # Yield starting event
             yield Event(
                 author=self.name,

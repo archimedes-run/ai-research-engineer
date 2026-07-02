@@ -102,11 +102,13 @@ class TestMatrixExpansion:
         assert len(cells) == 2
         assert all(c.engine == "mock" for c in cells)
 
-    def test_unavailable_graphify_on_is_skipped(self):
+    def test_graphify_on_and_off_both_produce_cells(self):
         cells = expand_matrix(_TWO_TASK_SUITE, graphify_values=[False, True])
-        # graphify=True is not yet available → those cells skipped
-        assert all(c.graphify is False for c in cells)
-        assert len(cells) == 2  # only graphify=off cells survive
+        # Both graphify values are available → 2 tasks × 2 graphify = 4 cells
+        graphify_vals = {c.graphify for c in cells}
+        assert True in graphify_vals
+        assert False in graphify_vals
+        assert len(cells) == 4
 
     def test_unknown_engine_is_skipped(self):
         cells = expand_matrix(_TWO_TASK_SUITE, engines=["default", "graphify_engine_v2"])
@@ -114,10 +116,12 @@ class TestMatrixExpansion:
         assert all(c.engine == "default" for c in cells)
         assert len(cells) == 2
 
-    def test_both_graphify_flags_only_off_executes(self):
+    def test_both_graphify_flags_produce_double_cells(self):
         cells = expand_matrix(_THREE_TASK_SUITE, graphify_values=[True, False])
-        assert len(cells) == 3  # 3 tasks × graphify=False only
-        assert all(not c.graphify for c in cells)
+        # Both values active → 3 tasks × 2 graphify values = 6 cells
+        assert len(cells) == 6
+        graphify_vals = {c.graphify for c in cells}
+        assert graphify_vals == {True, False}
 
     def test_cell_agent_type_derived_from_mode(self):
         cells = expand_matrix(_THREE_TASK_SUITE, engines=["mock"])

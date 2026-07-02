@@ -50,6 +50,7 @@ class SessionConfig:
     template: str = "NeurReps_2024_Template"
     research_mode: str = "novelty"  # Added research_mode to config
     domain: str = "aiml"  # Added domain to config
+    use_graphify: bool = False
 
 
 @dataclass
@@ -108,6 +109,7 @@ class AIEngineer:
         template: str = "NeurReps_2024_Template",
         research_mode: str = "novelty",
         domain: str = "aiml",
+        use_graphify: bool = False,
     ):
         """Initialize AI Research Engineer core with configuration."""
         # Generate session ID
@@ -138,6 +140,7 @@ class AIEngineer:
             template=template,
             research_mode=research_mode,
             domain=domain,
+            use_graphify=use_graphify,
         )
 
         # ADK components
@@ -151,6 +154,7 @@ class AIEngineer:
         logger.info(f"Auto-cleanup enabled: {self.auto_cleanup}")
         logger.info(f"Research Mode: {self.config.research_mode}")
         logger.info(f"Domain: {self.config.domain}")
+        logger.info(f"Graphify: {self.config.use_graphify}")
 
     async def _setup_agent(self):
         """Set up the agent and session service."""
@@ -169,6 +173,7 @@ class AIEngineer:
                 template=self.config.template,
                 research_mode="evolve" if self.config.agent_type == "evolve" else self.config.research_mode,
                 domain=self.config.domain,
+                use_graphify=self.config.use_graphify,
             )
 
             # Store both app and agent references
@@ -351,6 +356,7 @@ class AIEngineer:
             "original_user_input": message,
             "latest_user_input": message,
             "working_dir": str(self.working_dir),
+            "use_graphify": self.config.use_graphify,
         }
         if self.config.agent_type == "claude_code":
             state["implementation_task"] = message

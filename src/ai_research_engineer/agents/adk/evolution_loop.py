@@ -269,6 +269,18 @@ class EvolutionLoopAgent(BaseAgent):
             self._materialize_parent(parent, working_dir)
             program_path = self._program_path(working_dir)
 
+            # Refresh code graph so Claude sees the updated codebase (fail-soft)
+            if state.get("use_graphify"):
+                try:
+                    import asyncio
+
+                    from ai_research_engineer.core.graphify import ensure_graph, graphify_available
+
+                    if graphify_available():
+                        await asyncio.to_thread(ensure_graph, working_dir, True)
+                except Exception as _ge:
+                    logger.warning("[EvolutionLoop] Graphify rebuild failed on gen %d: %s", gen, _ge)
+
             # 3. Inject Mutation Prompt to Claude's State
             state["implementation_task"] = (
                 f"EVOLUTIONARY OPTIMIZATION TASK - GENERATION {gen}\n\n"
