@@ -732,6 +732,7 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
   const [session, setSession] = useState<Session | null>(null)
   const [events, setEvents] = useState<FeedEvent[]>([])
   const [isTerminal, setIsTerminal] = useState(false)
+  const [stopping, setStopping] = useState(false)
   const feedEndRef = useRef<HTMLDivElement>(null)
   const seenSeqs = useRef(new Set<number>())
   const lastSeqRef = useRef(0)
@@ -821,6 +822,24 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
   }, [runId])
 
   // ---------------------------------------------------------------------------
+  // Stop
+  // ---------------------------------------------------------------------------
+  const handleStop = useCallback(async () => {
+    if (stopping || isTerminal) return
+    setStopping(true)
+    try {
+      await fetch(apiUrl(`/api/sessions/${runId}/stop`), {
+        method: 'POST',
+        headers: apiHeaders(),
+      })
+      // SSE will receive an error event + sentinel which sets isTerminal via processEvent
+    } catch { /* ignore — SSE state update is the source of truth */ }
+    finally {
+      setStopping(false)
+    }
+  }, [runId, stopping, isTerminal])
+
+  // ---------------------------------------------------------------------------
   // SSE
   // ---------------------------------------------------------------------------
   const handleAnswered = useCallback(() => {
@@ -898,6 +917,23 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
         {/* Logo + back */}
         <div className="px-5 py-4 border-b flex items-center gap-3" style={{ borderColor: C.border }}>
           <Link href="/cockpit" className="text-xs font-mono tracking-widest uppercase hover:opacity-70 transition-opacity" style={{ color: C.muted }}>← cockpit</Link>
+          {!isTerminal && (
+            <button
+              onClick={handleStop}
+              disabled={stopping}
+              className="ml-auto text-xs px-2.5 py-1 rounded-lg border transition-all flex-shrink-0"
+              style={{
+                borderColor: stopping ? C.border : `${C.brand}50`,
+                background: stopping ? 'transparent' : `${C.brand}08`,
+                color: stopping ? C.muted : C.brand,
+                cursor: stopping ? 'not-allowed' : 'pointer',
+                fontFamily: 'var(--font-outfit)',
+              }}
+              title="Stop this run"
+            >
+              {stopping ? 'Stopping…' : '■ Stop'}
+            </button>
+          )}
         </div>
 
         {/* Session info */}
