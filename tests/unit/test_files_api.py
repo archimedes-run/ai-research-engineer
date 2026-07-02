@@ -283,3 +283,118 @@ class TestFileContent:
         r = c.get(f"/api/sessions/{sid}/files/src/utils.py")
         assert r.status_code == 200
         assert "UTIL = True" in r.json()["content"]
+
+
+# ---------------------------------------------------------------------------
+# GET /api/sessions/{id}/tree
+# ---------------------------------------------------------------------------
+
+
+class TestTreeEndpoint:
+    def test_404_when_session_unknown(self, client):
+        c, _, _ = client
+        r = c.get("/api/sessions/no-such-session/tree")
+        assert r.status_code == 404
+
+    def test_empty_graph_when_no_nodes(self, client, tmp_path, monkeypatch):
+        import ai_research_engineer.core.argument_tree as at_mod
+
+        db = tmp_path / "tree_empty.db"
+        monkeypatch.setattr(at_mod, "_DEFAULT_DB", db)
+
+        c, store, _ = client
+        sid = _make_session(store, "sess-tree-empty")
+        r = c.get(f"/api/sessions/{sid}/tree")
+        assert r.status_code == 200
+        body = r.json()
+        assert "graph" in body
+        assert body["graph"] == {"nodes": [], "edges": []}
+        assert body["stats"]["total_nodes"] == 0
+
+    def test_graph_contains_nodes_and_edges(self, client, tmp_path, monkeypatch):
+        import ai_research_engineer.core.argument_tree as at_mod
+        from ai_research_engineer.core.argument_tree import TreeBuilder
+
+        db = tmp_path / "tree_nodes.db"
+        monkeypatch.setattr(at_mod, "_DEFAULT_DB", db)
+
+        c, store, _ = client
+        sid = _make_session(store, "sess-tree-nodes")
+
+        # Pre-populate tree for this session
+        t = TreeBuilder(run_id=sid, db_path=db)
+        root_id = t.add_root("Root research question")
+        hyp_id = t.add_hypothesis("Contrastive learning improves SSL", parent_id=root_id)
+        t.close()
+
+        r = c.get(f"/api/sessions/{sid}/tree")
+        assert r.status_code == 200
+        body = r.json()
+        graph = body["graph"]
+        node_ids = {n["id"] for n in graph["nodes"]}
+        assert root_id in node_ids
+        assert hyp_id in node_ids
+        assert {"source": root_id, "target": hyp_id, "relation": "parent"} in graph["edges"]
+
+    def test_graph_includes_audit_note(self, client, tmp_path, monkeypatch):
+        import ai_research_engineer.core.argument_tree as at_mod
+        from ai_research_engineer.core.argument_tree import TreeBuilder
+
+        db = tmp_path / "tree_audit.db"
+        monkeypatch.setattr(at_mod, "_DEFAULT_DB", db)
+
+        c, store, _ = client
+        sid = _make_session(store, "sess-tree-audit")
+
+        t = TreeBuilder(run_id=sid, db_path=db)
+        root_id = t.add_root("Root")
+        t.add_audit_note("Verification: 5/5 refs verified", parent_id=root_id)
+        t.close()
+
+        r = c.get(f"/api/sessions/{sid}/tree")
+        assert r.status_code == 200
+        types_seen = {n["type"] for n in r.json()["graph"]["nodes"]}
+        assert "audit_note" in types_seen
+
+    def test_graph_redacts_secrets_in_label(self, client, tmp_path, monkeypatch):
+        import ai_research_engineer.core.argument_tree as at_mod
+        from ai_research_engineer.core.argument_tree import TreeBuilder
+
+        db = tmp_path / "tree_secret.db"
+        monkeypatch.setattr(at_mod, "_DEFAULT_DB", db)
+
+        c, store, _ = client
+        sid = _make_session(store, "sess-tree-secret")
+
+        t = TreeBuilder(run_id=sid, db_path=db)
+        t.add_root('api_key = "super_secret_value_here_123"')
+        t.close()
+
+        r = c.get(f"/api/sessions/{sid}/tree")
+        assert r.status_code == 200
+        label = r.json()["graph"]["nodes"][0]["label"]
+        assert "super_secret_value_here_123" not in label
+
+    def test_existing_fields_unchanged(self, client, tmp_path, monkeypatch):
+        """stats, gaps, context must still be present and correct."""
+        import ai_research_engineer.core.argument_tree as at_mod
+        from ai_research_engineer.core.argument_tree import TreeBuilder
+
+        db = tmp_path / "tree_fields.db"
+        monkeypatch.setattr(at_mod, "_DEFAULT_DB", db)
+
+        c, store, _ = client
+        sid = _make_session(store, "sess-tree-fields")
+
+        t = TreeBuilder(run_id=sid, db_path=db)
+        root_id = t.add_root("Root")
+        t.add_experiment("Exp", parent_id=root_id)
+        t.close()
+
+        r = c.get(f"/api/sessions/{sid}/tree")
+        assert r.status_code == 200
+        body = r.json()
+        assert "stats" in body
+        assert "gaps" in body
+        assert "context" in body
+        assert body["stats"]["total_nodes"] == 2

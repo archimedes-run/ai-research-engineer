@@ -435,3 +435,161 @@ class TestOrchestratorTreeFailureIsolation:
             events = asyncio.run(_drain(orch._run_async_impl(ctx)))
 
         assert len(events) > 0
+
+
+# ---------------------------------------------------------------------------
+# IdeationTreeAgent
+# ---------------------------------------------------------------------------
+
+
+class TestIdeationTreeAgent:
+    def test_hypothesis_node_written(self, tmp_path):
+        from ai_research_engineer.agents.adk.tree_seed_agents import IdeationTreeAgent
+        from ai_research_engineer.core.argument_tree import TreeBuilder
+
+        db = tmp_path / "idea.db"
+        agent = IdeationTreeAgent(working_dir="")
+        state = {
+            "generated_ideas": "Use contrastive learning for self-supervised pretraining.",
+            "original_user_input": "Novel SSL method",
+        }
+        ctx = _make_ctx(state, session_id="idea-run-1")
+
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", db):
+            asyncio.run(_drain(agent._run_async_impl(ctx)))
+
+        tree = TreeBuilder(run_id="idea-run-1", db_path=db)
+        try:
+            hyps = tree.get_nodes_by_type("hypothesis")
+            assert len(hyps) == 1
+            assert "contrastive learning" in hyps[0]["label"]
+            root = tree.get_root()
+            assert root is not None
+            assert "Novel SSL method" in root["label"]
+        finally:
+            tree.close()
+
+    def test_idempotent_no_duplicate_hypotheses(self, tmp_path):
+        from ai_research_engineer.agents.adk.tree_seed_agents import IdeationTreeAgent
+        from ai_research_engineer.core.argument_tree import TreeBuilder
+
+        db = tmp_path / "idea2.db"
+        agent = IdeationTreeAgent(working_dir="")
+        state = {"generated_ideas": "SSL method idea", "original_user_input": "SSL topic"}
+        ctx = _make_ctx(state, session_id="idea-run-2")
+
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", db):
+            asyncio.run(_drain(agent._run_async_impl(ctx)))
+            asyncio.run(_drain(agent._run_async_impl(ctx)))  # second call — must be idempotent
+
+        tree = TreeBuilder(run_id="idea-run-2", db_path=db)
+        try:
+            assert len(tree.get_nodes_by_type("hypothesis")) == 1
+            assert len(tree.get_nodes_by_type("root")) == 1
+        finally:
+            tree.close()
+
+    def test_failure_does_not_crash(self):
+        from ai_research_engineer.agents.adk.tree_seed_agents import IdeationTreeAgent
+
+        agent = IdeationTreeAgent(working_dir="")
+        state = {"generated_ideas": "idea", "original_user_input": "topic"}
+        ctx = _make_ctx(state, session_id="idea-run-fail")
+
+        with patch(
+            "ai_research_engineer.core.argument_tree.TreeBuilder.__init__",
+            side_effect=RuntimeError("DB unavailable"),
+        ):
+            events = asyncio.run(_drain(agent._run_async_impl(ctx)))
+
+        assert len(events) > 0  # status event still emitted
+
+
+# ---------------------------------------------------------------------------
+# PlanningTreeAgent
+# ---------------------------------------------------------------------------
+
+
+class TestPlanningTreeAgent:
+    def _plan_state(self, n_stages: int = 2, n_criteria: int = 2):
+        return {
+            "original_user_input": "Novel SSL research",
+            "high_level_stages": [
+                {"index": i, "title": f"Stage {i}", "description": f"desc {i}", "completed": False}
+                for i in range(n_stages)
+            ],
+            "high_level_success_criteria": [
+                {"index": i, "criteria": f"Criterion {i}", "met": False}
+                for i in range(n_criteria)
+            ],
+        }
+
+    def test_experiments_and_claims_written(self, tmp_path):
+        from ai_research_engineer.agents.adk.tree_seed_agents import PlanningTreeAgent
+        from ai_research_engineer.core.argument_tree import TreeBuilder
+
+        db = tmp_path / "plan.db"
+        agent = PlanningTreeAgent(working_dir="")
+        ctx = _make_ctx(self._plan_state(n_stages=2, n_criteria=3), session_id="plan-run-1")
+
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", db):
+            asyncio.run(_drain(agent._run_async_impl(ctx)))
+
+        tree = TreeBuilder(run_id="plan-run-1", db_path=db)
+        try:
+            assert len(tree.get_nodes_by_type("experiment")) == 2
+            assert len(tree.get_nodes_by_type("claim")) == 3
+            root = tree.get_root()
+            assert root is not None
+            assert "Novel SSL research" in root["label"]
+        finally:
+            tree.close()
+
+    def test_no_duplicates_on_second_run(self, tmp_path):
+        """Stage_index and criterion_index de-dup prevents doubles on retry."""
+        from ai_research_engineer.agents.adk.tree_seed_agents import PlanningTreeAgent
+        from ai_research_engineer.core.argument_tree import TreeBuilder
+
+        db = tmp_path / "plan2.db"
+        agent = PlanningTreeAgent(working_dir="")
+        ctx = _make_ctx(self._plan_state(n_stages=1, n_criteria=1), session_id="plan-run-2")
+
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", db):
+            asyncio.run(_drain(agent._run_async_impl(ctx)))
+            asyncio.run(_drain(agent._run_async_impl(ctx)))  # second call
+
+        tree = TreeBuilder(run_id="plan-run-2", db_path=db)
+        try:
+            stats = tree.get_stats()
+            assert stats["by_type"].get("experiment", 0) == 1
+            assert stats["by_type"].get("claim", 0) == 1
+            assert stats["by_type"].get("root", 0) == 1
+        finally:
+            tree.close()
+
+    def test_no_stages_emits_skip_event(self, tmp_path):
+        from ai_research_engineer.agents.adk.tree_seed_agents import PlanningTreeAgent
+
+        db = tmp_path / "plan3.db"
+        agent = PlanningTreeAgent(working_dir="")
+        ctx = _make_ctx({"original_user_input": "topic"}, session_id="plan-run-empty")
+
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", db):
+            events = asyncio.run(_drain(agent._run_async_impl(ctx)))
+
+        assert len(events) == 1
+        assert "skipped" in events[0].content.parts[0].text.lower()
+
+    def test_failure_does_not_crash(self):
+        from ai_research_engineer.agents.adk.tree_seed_agents import PlanningTreeAgent
+
+        agent = PlanningTreeAgent(working_dir="")
+        ctx = _make_ctx(self._plan_state(), session_id="plan-run-fail")
+
+        with patch(
+            "ai_research_engineer.core.argument_tree.TreeBuilder.__init__",
+            side_effect=RuntimeError("DB unavailable"),
+        ):
+            events = asyncio.run(_drain(agent._run_async_impl(ctx)))
+
+        assert len(events) > 0
