@@ -7,7 +7,7 @@ remaining stages through reflection.
 """
 
 import logging
-from typing import Any, AsyncGenerator, Dict, List
+from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
 
 from google.adk.agents import BaseAgent, InvocationContext
 from google.adk.events import Event
@@ -107,6 +107,19 @@ class StageOrchestratorAgent(BaseAgent):
     def stage_reflector(self) -> BaseAgent:
         """Get the stage reflector agent."""
         return self._stage_reflector
+
+    @staticmethod
+    def _tree_safe(fn: Callable, *args: Any, **kwargs: Any) -> Any:
+        """Call fn(*args, **kwargs), log and swallow any exception.
+
+        The argument tree is observability only — failures must never affect
+        control flow.
+        """
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            logger.warning("[StageOrchestrator] Tree write ignored: %s", exc)
+            return None
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """
@@ -241,6 +254,55 @@ class StageOrchestratorAgent(BaseAgent):
         if "stage_implementations" not in state:
             state["stage_implementations"] = []
 
+        # --- Argument tree: initialise (failure-isolated) ---
+        _tree: Optional[Any] = None
+        try:
+            from ai_research_engineer.core.argument_tree import TreeBuilder
+
+            _tree = TreeBuilder(ctx.session.id)
+        except Exception as _te:
+            logger.warning("[StageOrchestrator] Could not init TreeBuilder: %s", _te)
+
+        # Seed tree root + experiment/claim nodes once per run
+        if _tree is not None and not state.get("_tree_seeded"):
+            topic = (
+                state.get("original_user_input")
+                or state.get("latest_user_input")
+                or state.get("implementation_task")
+                or "Research run"
+            )
+
+            def _seed_tree() -> None:
+                root = _tree.get_root()
+                if root is None:
+                    root_id = _tree.add_root(label=topic[:200], content=topic)
+                else:
+                    root_id = root["node_id"]
+                # One experiment node per stage
+                existing_experiments = {n["metadata"].get("stage_index") for n in _tree.get_nodes_by_type("experiment")}
+                for stage in stages:
+                    if stage.get("index") not in existing_experiments:
+                        _tree.add_experiment(
+                            label=stage.get("title", f"Stage {stage.get('index')}"),
+                            content=stage.get("description", ""),
+                            parent_id=root_id,
+                            status="pending",
+                            metadata={"stage_index": stage.get("index"), "title": stage.get("title", "")},
+                        )
+                # One claim node per criterion
+                existing_claims = {n["metadata"].get("criterion_index") for n in _tree.get_nodes_by_type("claim")}
+                for c in criteria:
+                    if c.get("index") not in existing_claims:
+                        _tree.add_claim(
+                            label=c.get("criteria", f"Criterion {c.get('index')}"),
+                            parent_id=root_id,
+                            status="unsupported",
+                            metadata={"criterion_index": c.get("index")},
+                        )
+
+            self._tree_safe(_seed_tree)
+            state["_tree_seeded"] = True
+
         # Main orchestration loop
         iteration = 0
         max_iterations = 50  # Safety limit to prevent infinite loops
@@ -275,6 +337,8 @@ class StageOrchestratorAgent(BaseAgent):
                     turn_complete=True,
                 )
                 yield completion_event
+                if _tree is not None:
+                    self._tree_safe(_tree.close)
                 return
 
             # Get next uncompleted stage
@@ -312,6 +376,8 @@ class StageOrchestratorAgent(BaseAgent):
                         turn_complete=True,
                     )
                     yield warning_event
+                    if _tree is not None:
+                        self._tree_safe(_tree.close)
                     return
 
             # Get next stage to implement
@@ -409,6 +475,28 @@ class StageOrchestratorAgent(BaseAgent):
             )
             state["stage_implementations"] = stage_implementations
 
+            # --- Tree: record result under this stage's experiment node ---
+            if _tree is not None:
+                impl_summary = next_stage.get("implementation_result", "")
+
+                def _add_result(stage_idx=stage_idx, summary=impl_summary) -> None:
+                    exp_nodes = [
+                        n
+                        for n in _tree.get_nodes_by_type("experiment")
+                        if n["metadata"].get("stage_index") == stage_idx
+                    ]
+                    if exp_nodes:
+                        exp_node_id = exp_nodes[0]["node_id"]
+                        _tree.add_result(
+                            label=f"Result: stage {stage_idx}",
+                            content=summary[:2000] if summary else None,
+                            parent_id=exp_node_id,
+                            status="completed",
+                            metadata={"stage_index": stage_idx},
+                        )
+
+                self._tree_safe(_add_result)
+
             # === Run Success Criteria Checker ===
             logger.info("")
             logger.info("")
@@ -426,6 +514,22 @@ class StageOrchestratorAgent(BaseAgent):
                 logger.info(
                     f"[StageOrchestrator] Criteria status after check: {criteria_met_count}/{len(criteria)} met"
                 )
+
+                # --- Tree: flip claim statuses ---
+                if _tree is not None:
+
+                    def _update_claims(criteria_snapshot=list(criteria)) -> None:
+                        claim_nodes = _tree.get_nodes_by_type("claim")
+                        idx_to_node = {n["metadata"].get("criterion_index"): n for n in claim_nodes}
+                        for c in criteria_snapshot:
+                            node = idx_to_node.get(c.get("index"))
+                            if node:
+                                new_status = "supported" if c.get("met", False) else node["status"]
+                                if new_status != node["status"]:
+                                    _tree.update_node_status(node["node_id"], new_status)
+
+                    self._tree_safe(_update_claims)
+
             except Exception as e:
                 logger.error(
                     f"[StageOrchestrator] Criteria checker failed for stage {stage_idx}: {e}",
@@ -459,6 +563,26 @@ class StageOrchestratorAgent(BaseAgent):
 
                 # Reflector may modify state["high_level_stages"] via callback
                 stages = state.get("high_level_stages", [])
+
+                # --- Tree: add experiment nodes for any new stages ---
+                if _tree is not None:
+
+                    def _sync_new_stages(stages_snapshot=list(stages)) -> None:
+                        existing = {n["metadata"].get("stage_index") for n in _tree.get_nodes_by_type("experiment")}
+                        root = _tree.get_root()
+                        root_id = root["node_id"] if root else None
+                        for s in stages_snapshot:
+                            if s.get("index") not in existing:
+                                _tree.add_experiment(
+                                    label=s.get("title", f"Stage {s.get('index')}"),
+                                    content=s.get("description", ""),
+                                    parent_id=root_id,
+                                    status="pending",
+                                    metadata={"stage_index": s.get("index"), "title": s.get("title", "")},
+                                )
+
+                    self._tree_safe(_sync_new_stages)
+
             except Exception as e:
                 logger.error(
                     f"[StageOrchestrator] Stage reflector failed for stage {stage_idx}: {e}",
@@ -485,6 +609,22 @@ class StageOrchestratorAgent(BaseAgent):
             # NOW mark stage as completed (after criteria check and reflection)
             next_stage["completed"] = True
 
+            # --- Tree: mark experiment node completed ---
+            if _tree is not None:
+
+                def _mark_exp_completed(s_idx=stage_idx) -> None:
+                    exp_nodes = [
+                        n for n in _tree.get_nodes_by_type("experiment") if n["metadata"].get("stage_index") == s_idx
+                    ]
+                    if exp_nodes:
+                        _tree.update_node_status(
+                            exp_nodes[0]["node_id"],
+                            "completed",
+                            metadata_patch={"completed": True},
+                        )
+
+                self._tree_safe(_mark_exp_completed)
+
             # Update stages in state
             state["high_level_stages"] = stages
 
@@ -509,6 +649,10 @@ class StageOrchestratorAgent(BaseAgent):
             turn_complete=True,
         )
         yield timeout_event
+
+        # --- Tree: close connection ---
+        if _tree is not None:
+            self._tree_safe(_tree.close)
 
     async def _run_live_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """Live mode not supported for orchestrator."""
