@@ -58,5 +58,8 @@ benchmarks/cost/out/
 graphify-out/
 **/graphify-out/
 
+# Brag / review output directories
+brag-output*/
+
 # Logs
 logs/
