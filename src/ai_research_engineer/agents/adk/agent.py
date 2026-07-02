@@ -408,6 +408,8 @@ def create_agent(
     research_mode: str = "novelty",
     domain: str = "aiml",
     use_graphify: bool = False,
+    hitl_enabled: bool = False,
+    store_session_id: str = "",
 ) -> SequentialAgent:
     """
     Factory function to create an AI Research Engineer ADK agent.
@@ -988,10 +990,13 @@ def create_agent(
     reference_verifier_agent = ReferenceVerifierAgent(working_dir=str(working_dir))
     workflow_agents.append(reference_verifier_agent)
 
-    workflow = SequentialAgent(
-        name="ai_research_engineer_workflow",
-        description="Complete AI Research Engineer workflow with adaptive stage-wise implementation.",
+    from ai_research_engineer.agents.adk.hitl_sequential import HITLSequentialAgent  # noqa: PLC0415
+
+    workflow = HITLSequentialAgent(
         sub_agents=workflow_agents,
+        hitl_enabled=hitl_enabled,
+        working_dir=str(working_dir),
+        store_session_id=store_session_id,
     )
 
     logger.info("[AIResearcher] Agent creation complete")
@@ -1006,6 +1011,8 @@ def create_app(
     research_mode: str = "novelty",
     domain: str = "aiml",
     use_graphify: bool = False,
+    hitl_enabled: bool = False,
+    store_session_id: str = "",
 ) -> App:
     """
     Create an App instance with context management for the ADK agent.
@@ -1029,7 +1036,16 @@ def create_app(
         The configured App with context caching and compression
     """
     # Create the root agent
-    root_agent = create_agent(working_dir=working_dir, mcp_servers=mcp_servers, template=template, research_mode=research_mode, domain=domain, use_graphify=use_graphify)
+    root_agent = create_agent(
+        working_dir=working_dir,
+        mcp_servers=mcp_servers,
+        template=template,
+        research_mode=research_mode,
+        domain=domain,
+        use_graphify=use_graphify,
+        hitl_enabled=hitl_enabled,
+        store_session_id=store_session_id,
+    )
 
     # Configure context caching (just creating the config enables caching)
     cache_config = ContextCacheConfig()

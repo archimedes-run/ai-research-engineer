@@ -114,6 +114,17 @@ class VerificationEvent(BaseEvent):
     report_path: str = ""
 
 
+@dataclass
+class HITLRequestEvent(BaseEvent):
+    """Emitted when the workflow pauses awaiting human approval at a HITL gate."""
+
+    type: Literal["hitl_request"] = "hitl_request"
+    request_id: str = ""
+    gate_key: str = ""
+    question: str = ""
+    context_md: str = ""
+
+
 # Type union for all event types
 StreamingEvent = (
     MessageEvent
@@ -125,6 +136,7 @@ StreamingEvent = (
     | ErrorEvent
     | CompletedEvent
     | VerificationEvent
+    | HITLRequestEvent
 )
 
 
@@ -139,6 +151,7 @@ EVENT_TYPE_MAP = {
     "error": ErrorEvent,
     "completed": CompletedEvent,
     "verification": VerificationEvent,
+    "hitl_request": HITLRequestEvent,
 }
 
 

@@ -24,6 +24,7 @@ from ai_research_engineer.core.events import (
     ErrorEvent,
     FunctionCallEvent,
     FunctionResponseEvent,
+    HITLRequestEvent,
     MessageEvent,
     UsageEvent,
     VerificationEvent,
@@ -52,6 +53,7 @@ class SessionConfig:
     research_mode: str = "novelty"  # Added research_mode to config
     domain: str = "aiml"  # Added domain to config
     use_graphify: bool = False
+    hitl_enabled: bool = False
 
 
 @dataclass
@@ -111,12 +113,17 @@ class AIEngineer:
         research_mode: str = "novelty",
         domain: str = "aiml",
         use_graphify: bool = False,
+        hitl_enabled: bool = False,
+        session_id: Optional[str] = None,
     ):
         """Initialize AI Research Engineer core with configuration."""
-        # Generate session ID
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        unique_id = uuid.uuid4().hex[:8]
-        self.session_id = f"session_{timestamp}_{unique_id}"
+        # Use provided session_id (resume path) or generate a new one
+        if session_id:
+            self.session_id = session_id
+        else:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            unique_id = uuid.uuid4().hex[:8]
+            self.session_id = f"session_{timestamp}_{unique_id}"
 
         # Set up working directory
         if working_dir:
@@ -142,6 +149,7 @@ class AIEngineer:
             research_mode=research_mode,
             domain=domain,
             use_graphify=use_graphify,
+            hitl_enabled=hitl_enabled,
         )
 
         # ADK components
@@ -175,6 +183,8 @@ class AIEngineer:
                 research_mode="evolve" if self.config.agent_type == "evolve" else self.config.research_mode,
                 domain=self.config.domain,
                 use_graphify=self.config.use_graphify,
+                hitl_enabled=self.config.hitl_enabled,
+                store_session_id=self.session_id,
             )
 
             # Store both app and agent references
@@ -369,6 +379,7 @@ class AIEngineer:
         files: Optional[List[tuple]] = None,
         stream: bool = False,
         context: Optional[Dict] = None,
+        initial_state: Optional[Dict[str, Any]] = None,
     ) -> Union[Result, AsyncGenerator[Dict[str, Any], None]]:
         """
         Run agent asynchronously.
@@ -400,8 +411,12 @@ class AIEngineer:
             session = await self.session_service.get_session(
                 app_name=app_name, user_id="default_user", session_id=self.session_id
             )
+            # Apply base initial state first, then overlay any caller-provided state
             for k, v in self._build_initial_state(message).items():
                 session.state[k] = v
+            if initial_state:
+                for k, v in initial_state.items():
+                    session.state[k] = v
 
             logger.info(f"[API] Set session state keys: {list(session.state.keys())}")
 
@@ -428,7 +443,9 @@ class AIEngineer:
             else:
                 raise
 
-    async def _stream_responses(self, prompt: str, start_time: datetime) -> AsyncGenerator[Dict[str, Any], None]:
+    async def _stream_responses(
+        self, prompt: str, start_time: datetime
+    ) -> AsyncGenerator[Dict[str, Any], None]:
         """Stream responses from the agent."""
         event_count = 0
         message_event_number = 0
@@ -516,6 +533,24 @@ class AIEngineer:
                             timestamp=datetime.now().strftime("%H:%M:%S.%f")[:-3],
                         )
                         yield event_to_dict(usage_event)
+
+            # HITL pause check: if the workflow set _hitl_paused, emit event and return.
+            try:
+                session = getattr(self, "session", None)
+                if session is not None:
+                    gate_key = session.state.get("_hitl_paused")
+                    if gate_key:
+                        hitl_event = HITLRequestEvent(
+                            request_id=session.state.get("_hitl_request_id", ""),
+                            gate_key=gate_key,
+                            question=session.state.get("_hitl_question", ""),
+                            context_md=session.state.get("_hitl_context_md", ""),
+                            timestamp=datetime.now().strftime("%H:%M:%S.%f")[:-3],
+                        )
+                        yield event_to_dict(hitl_event)
+                        return  # No LaTeX compile, no CompletedEvent
+            except Exception as _he:
+                logger.warning("HITL pause check failed (fail-soft): %s", _he)
 
             # Emit VerificationEvent if the reference_verifier_agent ran
             try:
