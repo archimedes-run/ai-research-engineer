@@ -442,6 +442,37 @@ async def stop_session(
     return {"status": "interrupted"}
 
 
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    _: None = Security(_require_token),
+):
+    session = RunStore.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # If the session is currently running, tear it down first.
+    queue = _active_sessions.pop(session_id, None)
+    task = _active_tasks.pop(session_id, None)
+    if queue:
+        await queue.put(None)  # close any open SSE stream
+    if task and not task.done():
+        task.cancel()
+
+    # Remove the run's working directory (best-effort).
+    import shutil
+
+    working_dir = RunStore.DATA_DIR / "runs" / session_id
+    if working_dir.exists():
+        try:
+            shutil.rmtree(working_dir)
+        except Exception as exc:
+            logger.warning("Failed to remove working dir for %s: %s", session_id, exc)
+
+    deleted = RunStore.delete_session(session_id)
+    return {"deleted": deleted, "session_id": session_id}
+
+
 @app.get("/api/sessions/{session_id}/usage")
 async def get_session_usage(session_id: str):
     session = RunStore.get_session(session_id)
@@ -628,6 +659,26 @@ async def _run_agent(
                     cost_usd=usd,
                 )
 
+        # If the workflow paused at a HITL gate, surface the request instead of
+        # marking the session complete. _check_gate() already created a pending
+        # hitl_request row, saved a checkpoint, and set status=awaiting_input.
+        pending = RunStore.get_pending_hitl(session_id)
+        if pending is not None:
+            hitl_event = {
+                "type": "hitl_request",
+                "request_id": pending.get("request_id"),
+                "gate_key": pending.get("stage_key"),
+                "question": pending.get("question"),
+                "context_md": pending.get("context_md"),
+                "options": pending.get("options", []),
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+            }
+            await queue.put(hitl_event)
+            RunStore.append_event(session_id, hitl_event)
+            # _check_gate already set awaiting_input; do NOT mark completed.
+            logger.info("[HITL] Session %s paused at gate=%s", session_id, pending.get("stage_key"))
+            return
+
         duration = (datetime.now() - start_time).total_seconds()
         files_created = [
             str(p.relative_to(working_dir))
@@ -733,9 +784,24 @@ async def _run_agent_resume(
                     cost_usd=usd,
                 )
 
-        # Check if paused again (another gate hit)
-        final_status = "awaiting_input" if initial_state.get("_hitl_paused") else "completed"
-        if final_status == "completed":
+        # Check if paused again at another gate. RunStore is the source of truth:
+        # _check_gate() creates a fresh pending hitl_request when it pauses.
+        pending = RunStore.get_pending_hitl(session_id)
+        if pending is not None:
+            hitl_event = {
+                "type": "hitl_request",
+                "request_id": pending.get("request_id"),
+                "gate_key": pending.get("stage_key"),
+                "question": pending.get("question"),
+                "context_md": pending.get("context_md"),
+                "options": pending.get("options", []),
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+            }
+            await queue.put(hitl_event)
+            RunStore.append_event(session_id, hitl_event)
+            RunStore.update_session(session_id, {"status": "awaiting_input"})
+            logger.info("[HITL] Resumed session %s paused again at gate=%s", session_id, pending.get("stage_key"))
+        else:
             duration = (datetime.now() - start_time).total_seconds()
             files_created = [
                 str(p.relative_to(working_dir))
@@ -751,8 +817,6 @@ async def _run_agent_resume(
                     "files_created": files_created,
                 },
             )
-        else:
-            RunStore.update_session(session_id, {"status": "awaiting_input"})
 
     except Exception as e:
         logger.error(f"Resume session {session_id} failed: {e}", exc_info=True)

@@ -2,13 +2,14 @@
 
 import { use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { AnimatePresence, motion } from 'framer-motion'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
   ArrowDown, BookOpen, ChevronDown, ChevronRight, Database, Download, Eye, File as FileIco,
-  FileCode2, FilePen, FilePlus, FileText, Folder, FolderOpen, Github, Globe, Search,
-  Sparkles, Square, Terminal, Wrench, X, Zap,
+  FileCode2, FilePen, FilePlus, FileText, Folder, FolderOpen, Github, Globe, Search, Send,
+  Sparkles, Square, Terminal, Trash2, Wrench, X, Zap,
 } from 'lucide-react'
 import { apiUrl } from '@/lib/api'
 
@@ -472,88 +473,6 @@ function ToolGroup({ calls }: { calls: { call: FunctionCallEvent; response?: Fun
   )
 }
 
-// ---------------------------------------------------------------------------
-// HITL card (E.1 — unchanged behavior)
-// ---------------------------------------------------------------------------
-function HitlCard({ ev, runId, onAnswered }: { ev: HitlEvent; runId?: string; onAnswered?: () => void }) {
-  const [answer, setAnswer] = useState('')
-  const [submitting, setSubmitting] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
-  const [fetchedQ, setFetchedQ] = useState<string | null>(null)
-  const [fetchedCtx, setFetchedCtx] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!runId) return
-    fetch(apiUrl(`/api/sessions/${runId}/hitl`), { headers: apiHeaders() })
-      .then(r => r.ok ? r.json() : null)
-      .then((d: { pending?: { question?: string; context_md?: string } } | null) => {
-        if (d?.pending) {
-          if (d.pending.question) setFetchedQ(d.pending.question)
-          if (d.pending.context_md) setFetchedCtx(d.pending.context_md)
-        }
-      })
-      .catch(() => null)
-  }, [runId])
-
-  const question = fetchedQ ?? ev.question ?? ''
-  const contextMd = fetchedCtx ?? ev.context_md ?? ''
-
-  async function submit(ans: string) {
-    if (!runId || submitting || submitted) return
-    setSubmitting(true)
-    try {
-      const r = await fetch(apiUrl(`/api/sessions/${runId}/answer`), {
-        method: 'POST', headers: apiHeaders(), body: JSON.stringify({ answer: ans }),
-      })
-      if (r.ok) { setSubmitted(true); onAnswered?.() }
-    } finally { setSubmitting(false) }
-  }
-
-  if (submitted) return (
-    <div className="rounded-xl border px-4 py-3 my-4" style={{ borderColor: `${C.green}40`, background: `${C.green}08` }}>
-      <span className="text-xs font-semibold" style={{ color: C.green }}>✓ Response submitted — resuming…</span>
-    </div>
-  )
-
-  return (
-    <div className="rounded-xl border px-4 py-4 my-4 shadow-sm" style={{ borderColor: `${C.amber}45`, background: `${C.amber}08` }}>
-      <div className="flex items-center gap-2 mb-3">
-        <Eye className="w-3.5 h-3.5" style={{ color: C.amber }} />
-        <span className="text-xs tracking-widest uppercase font-semibold" style={{ color: C.amber }}>Awaiting your review</span>
-      </div>
-      {question && <div className="mb-3"><Markdown>{question}</Markdown></div>}
-      {contextMd && (
-        <pre className="text-xs rounded-lg p-3 mb-3 border overflow-auto feed-scroll" style={{ borderColor: C.border, background: C.surface, color: C.muted, fontFamily: 'var(--font-fira-code)', whiteSpace: 'pre-wrap', maxHeight: 180 }}>
-          {contextMd}
-        </pre>
-      )}
-      {runId && (
-        <div className="flex items-center gap-2 mt-1">
-          <button onClick={() => submit('approve')} disabled={submitting}
-            className="text-xs px-3 py-1.5 rounded-lg border font-medium transition-all flex-shrink-0"
-            style={{ borderColor: `${C.green}50`, background: submitting ? 'transparent' : `${C.green}10`, color: submitting ? C.muted : C.green, cursor: submitting ? 'not-allowed' : 'pointer' }}>
-            {submitting ? 'Submitting…' : 'Approve & continue'}
-          </button>
-          <textarea value={answer} onChange={e => setAnswer(e.target.value)} placeholder="Or type feedback…" rows={1} disabled={submitting}
-            className="flex-1 text-xs px-3 py-1.5 rounded-lg border outline-none resize-none"
-            style={{ borderColor: C.border, background: C.surface, color: C.text, fontFamily: 'var(--font-outfit)', minHeight: 34 }}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (answer.trim()) submit(answer.trim()) } }} />
-          <button onClick={() => { if (answer.trim()) submit(answer.trim()) }} disabled={!answer.trim() || submitting}
-            className="text-xs px-3 py-1.5 rounded-lg border font-medium transition-all flex-shrink-0"
-            style={{
-              borderColor: answer.trim() && !submitting ? `${C.brand}50` : C.border,
-              background: answer.trim() && !submitting ? `${C.brand}10` : 'transparent',
-              color: answer.trim() && !submitting ? C.brand : C.muted,
-              cursor: answer.trim() && !submitting ? 'pointer' : 'not-allowed',
-            }}>
-            Submit
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
 function TerminalBanner({ type, ev }: { type: 'completed' | 'error'; ev: FeedEvent }) {
   const isOk = type === 'completed'
   const color = isOk ? C.green : C.brand
@@ -600,7 +519,6 @@ function StreamingStatus() {
 type FeedItem =
   | { kind: 'message'; key: string; ev: MessageEvent }
   | { kind: 'stage'; key: string; label: string }
-  | { kind: 'hitl'; key: string; ev: HitlEvent }
   | { kind: 'terminal'; key: string; ttype: 'completed' | 'error'; ev: FeedEvent }
   | { kind: 'tools'; key: string; calls: { call: FunctionCallEvent; response?: FunctionResponseEvent }[] }
 
@@ -636,7 +554,7 @@ function buildFeedItems(events: FeedEvent[]): FeedItem[] {
       continue
     }
     if (ev.type === 'message') { items.push({ kind: 'message', key, ev: ev as unknown as MessageEvent }); continue }
-    if (ev.type === 'hitl_request') { items.push({ kind: 'hitl', key, ev: ev as unknown as HitlEvent }); continue }
+    if (ev.type === 'hitl_request') continue  // HITL is handled by the bottom input, not an inline card
     if (ev.type === 'stage') {
       const label = (ev as unknown as StageEvent).stage ?? (ev as unknown as StageEvent).label ?? 'stage'
       items.push({ kind: 'stage', key, label }); continue
@@ -650,8 +568,8 @@ function buildFeedItems(events: FeedEvent[]): FeedItem[] {
 // ---------------------------------------------------------------------------
 // Activity feed — stick-to-bottom + jump pill + refined scroll
 // ---------------------------------------------------------------------------
-function ActivityFeed({ events, runId, isTerminal, onAnswered }: {
-  events: FeedEvent[]; runId: string; isTerminal: boolean; onAnswered: () => void
+function ActivityFeed({ events, isTerminal }: {
+  events: FeedEvent[]; isTerminal: boolean
 }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stickRef = useRef(true)
@@ -694,7 +612,6 @@ function ActivityFeed({ events, runId, isTerminal, onAnswered }: {
             <motion.div key={item.key} layout="position" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.28, ease: 'easeOut' }}>
               {item.kind === 'message' && <MessageRow ev={item.ev} />}
               {item.kind === 'tools' && <ToolGroup calls={item.calls} />}
-              {item.kind === 'hitl' && <HitlCard ev={item.ev} runId={runId} onAnswered={onAnswered} />}
               {item.kind === 'terminal' && <TerminalBanner type={item.ttype} ev={item.ev} />}
               {item.kind === 'stage' && (
                 <div className="flex items-center gap-3 my-5">
@@ -1099,11 +1016,17 @@ type Tab = 'activity' | 'paper' | 'files' | 'graph' | 'inspector'
 
 export default function RunPage({ params }: { params: Promise<{ runId: string }> }) {
   const { runId } = use(params)
+  const router = useRouter()
 
   const [session, setSession] = useState<Session | null>(null)
   const [events, setEvents] = useState<FeedEvent[]>([])
   const [isTerminal, setIsTerminal] = useState(false)
   const [stopping, setStopping] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  // HITL — answered through the bottom input (supervised mode only)
+  const [hitlPending, setHitlPending] = useState<{ request_id?: string; question?: string; context_md?: string } | null>(null)
+  const [submittingHitl, setSubmittingHitl] = useState(false)
   const seenSeqs = useRef(new Set<number>())
   const lastSeqRef = useRef(0)
   const [sseVersion, setSseVersion] = useState(0)
@@ -1130,6 +1053,14 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
         setSession(d)
         setStartedAt(new Date(d.started_at))
         if (d.status !== 'running' && d.status !== 'awaiting_input') setIsTerminal(true)
+        // Awaiting input (possibly with no hitl_request event in the feed) — pull the pending gate.
+        if (d.status === 'awaiting_input') {
+          fetch(apiUrl(`/api/sessions/${runId}/hitl`), { headers: apiHeaders() })
+            .then(r => r.ok ? r.json() : null)
+            .then((h: { pending?: { request_id?: string; question?: string; context_md?: string } } | null) => {
+              if (h?.pending) setHitlPending(h.pending)
+            }).catch(() => null)
+        }
       }).catch(() => null)
   }, [runId])
 
@@ -1148,8 +1079,13 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
       setLiveUsage(prev => ({ input_tokens: prev.input_tokens + (u.input_tokens ?? 0), cached_input_tokens: prev.cached_input_tokens + (u.cached_input_tokens ?? 0), output_tokens: prev.output_tokens + (u.output_tokens ?? 0), cost_usd: prev.cost_usd }))
       return
     }
+    if (ev.type === 'hitl_request') {
+      const h = ev as unknown as HitlEvent
+      setHitlPending({ request_id: h.request_id, question: h.question, context_md: h.context_md })
+    }
     if (ev.type === 'completed' || ev.type === 'error') {
       setIsTerminal(true)
+      setHitlPending(null)
       fetch(apiUrl(`/api/sessions/${runId}/usage`), { headers: apiHeaders() }).then(r => r.ok ? r.json() : null).then((d: UsageResponse | null) => { if (d) setUsage(d) }).catch(() => null)
     }
 
@@ -1182,6 +1118,34 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
   }, [runId, stopping, isTerminal])
 
   const handleAnswered = useCallback(() => { setSseVersion(v => v + 1) }, [])
+
+  const submitHitl = useCallback(async () => {
+    const answer = chatMsg.trim()
+    if (!hitlPending || submittingHitl || !answer) return
+    setSubmittingHitl(true)
+    try {
+      const r = await fetch(apiUrl(`/api/sessions/${runId}/answer`), {
+        method: 'POST', headers: apiHeaders(), body: JSON.stringify({ answer }),
+      })
+      if (r.ok) {
+        setChatMsg('')
+        setHitlPending(null)
+        handleAnswered()  // re-open SSE so the resumed run streams in
+      }
+    } catch { /* ignore — user can retry */ }
+    finally { setSubmittingHitl(false) }
+  }, [chatMsg, hitlPending, submittingHitl, runId, handleAnswered])
+
+  const handleDelete = useCallback(async () => {
+    if (deleting) return
+    if (!window.confirm('Delete this session permanently? This removes all of its files, events, and history.')) return
+    setDeleting(true)
+    try {
+      const r = await fetch(apiUrl(`/api/sessions/${runId}`), { method: 'DELETE', headers: apiHeaders() })
+      if (r.ok) { router.push('/cockpit'); return }
+    } catch { /* ignore */ }
+    setDeleting(false)
+  }, [deleting, runId, router])
 
   useEffect(() => {
     let es: EventSource | null = null
@@ -1247,16 +1211,26 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
       {/* ── Left sidebar — stripped + warm ─────────────────────────────── */}
       <aside className="flex flex-col flex-shrink-0 overflow-hidden" style={{ width: 268, background: C.sidebar, borderRight: `1px solid ${C.border}` }}>
         {/* Logo + stop */}
-        <div className="px-5 py-4 flex items-center gap-3" style={{ borderBottom: `1px solid ${C.border}` }}>
+        <div className="px-5 py-4 flex items-center gap-2" style={{ borderBottom: `1px solid ${C.border}` }}>
           <Link href="/cockpit" className="text-xs font-mono tracking-widest uppercase hover:opacity-70 transition-opacity" style={{ color: C.muted }}>← cockpit</Link>
-          {!isTerminal && (
-            <button onClick={handleStop} disabled={stopping}
-              className="ml-auto flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border transition-all flex-shrink-0"
-              style={{ borderColor: stopping ? C.border : `${C.brand}50`, background: stopping ? 'transparent' : `${C.brand}08`, color: stopping ? C.muted : C.brand, cursor: stopping ? 'not-allowed' : 'pointer' }}
-              title="Stop this run">
-              <Square className="w-3 h-3" style={{ fill: 'currentColor' }} />{stopping ? 'Stopping…' : 'Stop'}
+          <div className="ml-auto flex items-center gap-2">
+            {!isTerminal && (
+              <button onClick={handleStop} disabled={stopping}
+                className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg border transition-all flex-shrink-0"
+                style={{ borderColor: stopping ? C.border : `${C.brand}50`, background: stopping ? 'transparent' : `${C.brand}08`, color: stopping ? C.muted : C.brand, cursor: stopping ? 'not-allowed' : 'pointer' }}
+                title="Stop this run">
+                <Square className="w-3 h-3" style={{ fill: 'currentColor' }} />{stopping ? 'Stopping…' : 'Stop'}
+              </button>
+            )}
+            <button onClick={handleDelete} disabled={deleting}
+              className="flex items-center justify-center w-7 h-7 rounded-lg border transition-all flex-shrink-0"
+              style={{ borderColor: C.border, background: 'transparent', color: deleting ? C.muted : C.muted, cursor: deleting ? 'not-allowed' : 'pointer' }}
+              onMouseEnter={e => { if (!deleting) { e.currentTarget.style.color = C.brand; e.currentTarget.style.borderColor = `${C.brand}50`; e.currentTarget.style.background = `${C.brand}08` } }}
+              onMouseLeave={e => { e.currentTarget.style.color = C.muted; e.currentTarget.style.borderColor = C.border; e.currentTarget.style.background = 'transparent' }}
+              title="Delete this session">
+              <Trash2 className="w-3.5 h-3.5" />
             </button>
-          )}
+          </div>
         </div>
 
         {/* Run identity */}
@@ -1314,30 +1288,47 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
 
         {/* Tab content */}
         <div className="flex-1 overflow-hidden" style={{ background: tabBg }}>
-          {activeTab === 'activity' && <ActivityFeed events={events} runId={runId} isTerminal={isTerminal} onAnswered={handleAnswered} />}
+          {activeTab === 'activity' && <ActivityFeed events={events} isTerminal={isTerminal} />}
           {activeTab === 'paper' && <PaperViewer runId={runId} isTerminal={isTerminal} />}
           {activeTab === 'files' && <CodebaseTab runId={runId} isTerminal={isTerminal} editingPath={editingPath} session={session} />}
           {activeTab === 'graph' && <KnowledgeGraphTab />}
           {activeTab === 'inspector' && <InspectorTab treeData={treeData} />}
         </div>
 
-        {/* Chat input (activity tab only) */}
-        {activeTab === 'activity' && (
+        {/* HITL input — supervised mode only; hidden on the dark Codebase tab */}
+        {session?.hitl_enabled && activeTab !== 'files' && (
           <div className="flex-shrink-0" style={{ borderTop: `1px solid ${C.border}`, background: C.surface }}>
-            <div className="max-w-3xl mx-auto px-4 py-3 flex items-end gap-3">
-              <div className="flex-1 rounded-xl border overflow-hidden" style={{ borderColor: C.border, background: C.bg }}>
-                <textarea rows={1} value={chatMsg}
-                  onChange={e => { setChatMsg(e.target.value); e.target.style.height = 'auto'; e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px` }}
-                  placeholder="Send a message to the agent…"
-                  className="w-full px-4 py-2.5 text-sm leading-relaxed resize-none outline-none block"
-                  style={{ fontFamily: 'var(--font-outfit)', color: C.text, background: 'transparent', height: 40, minHeight: 40 }}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) e.preventDefault() }} />
-              </div>
-              <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                <button disabled className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 cursor-not-allowed" style={{ background: C.border, color: C.muted }} title="Human-in-the-loop — coming soon">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            <div className="max-w-3xl mx-auto px-4 py-3">
+              {hitlPending && (
+                <div className="flex items-start gap-2 mb-2 px-1">
+                  <Eye className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: C.amber }} />
+                  <span className="text-xs leading-snug" style={{ color: C.amber, fontFamily: 'var(--font-outfit)' }}>
+                    {hitlPending.question || 'The agent is waiting for your review. Reply “approve” to continue, or give feedback.'}
+                  </span>
+                </div>
+              )}
+              <div className="flex items-end gap-2">
+                <div className="flex-1 rounded-xl border overflow-hidden transition-colors"
+                  style={{ borderColor: hitlPending ? `${C.amber}55` : C.border, background: hitlPending ? C.surface : C.surface2, opacity: hitlPending ? 1 : 0.7 }}>
+                  <textarea rows={1} value={chatMsg} disabled={!hitlPending || submittingHitl}
+                    onChange={e => { setChatMsg(e.target.value); e.target.style.height = 'auto'; e.target.style.height = `${Math.min(e.target.scrollHeight, 140)}px` }}
+                    placeholder={hitlPending ? 'Type “approve” to continue, or share feedback…' : 'Waiting for the next checkpoint…'}
+                    className="w-full px-4 py-2.5 text-sm leading-relaxed resize-none outline-none block"
+                    style={{ fontFamily: 'var(--font-outfit)', color: C.text, background: 'transparent', height: 42, minHeight: 42, cursor: hitlPending ? 'text' : 'not-allowed' }}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitHitl() } }} />
+                </div>
+                <button onClick={submitHitl} disabled={!hitlPending || submittingHitl || !chatMsg.trim()}
+                  className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-all"
+                  style={{
+                    background: hitlPending && chatMsg.trim() && !submittingHitl ? C.brand : C.border,
+                    color: hitlPending && chatMsg.trim() && !submittingHitl ? '#fff' : C.muted,
+                    cursor: hitlPending && chatMsg.trim() && !submittingHitl ? 'pointer' : 'not-allowed',
+                  }}
+                  title="Send response">
+                  {submittingHitl
+                    ? <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                    : <Send className="w-4 h-4" />}
                 </button>
-                <span className="text-xs whitespace-nowrap" style={{ color: C.muted, fontFamily: 'var(--font-outfit)' }}>HITL — soon</span>
               </div>
             </div>
           </div>

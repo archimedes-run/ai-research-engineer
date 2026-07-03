@@ -280,6 +280,39 @@ class RunStore:
             con.close()
         return [cls._row_to_session(r) for r in rows]
 
+    @classmethod
+    def delete_session(cls, session_id: str) -> bool:
+        """Delete a session and all of its rows across every table.
+
+        Returns True if the session existed and was removed. Argument-tree
+        tables are keyed by run_id (== session_id); the rest by session_id.
+        """
+        with _lock:
+            con = _conn()
+            try:
+                exists = con.execute(
+                    "SELECT 1 FROM sessions WHERE session_id = ?", (session_id,)
+                ).fetchone()
+                if not exists:
+                    return False
+                for table, col in (
+                    ("session_events", "session_id"),
+                    ("usage", "session_id"),
+                    ("hitl_requests", "session_id"),
+                    ("run_checkpoints", "session_id"),
+                    ("sources", "run_id"),
+                    ("argument_tree", "run_id"),
+                    ("sessions", "session_id"),
+                ):
+                    try:
+                        con.execute(f"DELETE FROM {table} WHERE {col} = ?", (session_id,))
+                    except Exception as exc:  # table may not exist in older DBs — fail-soft
+                        logger.debug("[delete_session] skip %s: %s", table, exc)
+                con.commit()
+                return True
+            finally:
+                con.close()
+
     # ------------------------------------------------------------------
     # Events
     # ------------------------------------------------------------------

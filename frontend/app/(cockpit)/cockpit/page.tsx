@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowRight, ChevronDown, Eye, FlaskConical, Globe, Zap } from 'lucide-react'
+import { ArrowRight, ChevronDown, Eye, FlaskConical, Globe, Trash2, Zap } from 'lucide-react'
 import { apiUrl } from '@/lib/api'
 import { MODES, DOMAINS, modeToPayload, type Mode, type Domain } from '@/lib/options'
 
@@ -166,6 +166,20 @@ export default function CockpitPage() {
   const [launching, setLaunching] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  async function handleDeleteSession(e: React.MouseEvent, sessionId: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (deletingId) return
+    if (!window.confirm('Delete this session permanently? This removes all of its files and history.')) return
+    setDeletingId(sessionId)
+    try {
+      const res = await fetch(apiUrl(`/api/sessions/${sessionId}`), { method: 'DELETE', headers: apiHeaders() })
+      if (res.ok) setSessions(prev => prev.filter(s => s.session_id !== sessionId))
+    } catch { /* ignore */ }
+    finally { setDeletingId(null) }
+  }
 
   // ---------------------------------------------------------------------------
   // Poll sessions
@@ -259,27 +273,42 @@ export default function CockpitPage() {
           ) : (
             <div className="space-y-0.5">
               {sessions.map((s) => (
-                <Link
+                <div
                   key={s.session_id}
-                  href={`/cockpit/${s.session_id}`}
-                  className="flex items-start gap-2 px-2 py-2 rounded-lg transition-colors"
-                  style={{ color: C.text }}
+                  className="group relative rounded-lg transition-colors"
                   onMouseEnter={(e) => (e.currentTarget.style.background = C.border)}
                   onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
                 >
-                  <StatusDot status={s.status} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-mono truncate" style={{ color: C.muted }}>
-                      {s.display_id}
+                  <Link
+                    href={`/cockpit/${s.session_id}`}
+                    className="flex items-start gap-2 px-2 py-2 pr-8"
+                    style={{ color: C.text }}
+                  >
+                    <StatusDot status={s.status} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-mono truncate" style={{ color: C.muted }}>
+                        {s.display_id}
+                      </div>
+                      <div className="text-xs truncate mt-0.5" style={{ color: C.text }}>
+                        {s.topic}
+                      </div>
+                      <div className="text-xs mt-0.5" style={{ color: C.muted }}>
+                        {relTime(s.started_at)}
+                      </div>
                     </div>
-                    <div className="text-xs truncate mt-0.5" style={{ color: C.text }}>
-                      {s.topic}
-                    </div>
-                    <div className="text-xs mt-0.5" style={{ color: C.muted }}>
-                      {relTime(s.started_at)}
-                    </div>
-                  </div>
-                </Link>
+                  </Link>
+                  <button
+                    onClick={(e) => handleDeleteSession(e, s.session_id)}
+                    disabled={deletingId === s.session_id}
+                    className="absolute top-1.5 right-1.5 w-6 h-6 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    style={{ color: C.muted }}
+                    onMouseEnter={(e) => (e.currentTarget.style.color = C.brand)}
+                    onMouseLeave={(e) => (e.currentTarget.style.color = C.muted)}
+                    title="Delete session"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
               ))}
             </div>
           )}
