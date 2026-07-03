@@ -60,3 +60,69 @@ class TestReconcileMode:
 
     def test_ambiguous_warns_and_keeps_mode(self):
         assert reconcile_mode("ambiguous", "novelty") == ("novelty", "warn")
+
+
+class TestHITLIntakePauseHalts:
+    """In HITL mode an intake mismatch (action=pause) must HALT before the
+    workflow is built — never silently proceed on the original mode. The
+    pre-workflow resume handshake is deferred to Stage 7 (see STAGE0_BASELINE)."""
+
+    def test_intake_hitl_pause_halts_not_proceeds(self, tmp_path, monkeypatch):
+        import asyncio
+        from datetime import datetime
+
+        import ai_research_engineer.core.api as api_mod
+        import ai_research_engineer.server.app as app_mod
+        from ai_research_engineer.server.run_store import RunStore
+
+        RunStore.init(db_path=tmp_path / "t.db")
+        monkeypatch.setattr(RunStore, "DATA_DIR", tmp_path)
+        RunStore.save_session(
+            {
+                "session_id": "sess-intake-pause",
+                "status": "running",
+                "title": "T",
+                "topic": "x",
+                "agent_type": "adk",
+                "started_at": datetime.now().isoformat(),
+            }
+        )
+
+        built = {"n": 0}
+
+        class _NoBuild:
+            def __init__(self, *args, **kwargs):
+                built["n"] += 1
+                raise AssertionError("workflow must NOT be built after a HITL intake pause")
+
+        monkeypatch.setattr(api_mod, "AIEngineer", _NoBuild)
+
+        queue = asyncio.Queue()
+        app_mod._active_sessions["sess-intake-pause"] = queue
+
+        # replicate intent + novelty mode + hitl_enabled=True -> action=pause -> HALT.
+        asyncio.run(
+            app_mod._run_agent(
+                "sess-intake-pause",
+                "Replicate tabular Q-learning on FrozenLake and reproduce the reported success rate.",
+                "adk",  # agent_type
+                "aiml",  # domain
+                "novelty",  # research_mode
+                "NeurReps_2024_Template",  # template
+                False,  # use_graphify
+                True,  # hitl_enabled
+                queue,
+            )
+        )
+
+        # The workflow was never constructed.
+        assert built["n"] == 0
+
+        events = RunStore.get_events("sess-intake-pause")
+        types_ = [e.get("type") for e in events]
+        assert "intake_decision" in types_
+        assert any(e.get("type") == "message" and "resume not yet supported" in e.get("content", "") for e in events), (
+            "a terminal halt message must be emitted"
+        )
+        # Session halted (terminal), not left running.
+        assert RunStore.get_session("sess-intake-pause")["status"] == "failed"

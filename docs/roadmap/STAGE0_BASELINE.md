@@ -41,3 +41,28 @@ lifecycle). The table records the original root cause and the fix.
   tests skip; the 4 repaired tests + 1 new graphify-absent test pass).
 - `pytest tests/integration/test_run_e2e_mock.py` → `10 passed` (was 9 failed /
   1 passed), and fast (~7s) instead of timing out.
+
+## Deferred to Stage 7
+
+### HITL intake-mismatch resume handshake (S0-5)
+
+When the intake router (S0-5) detects that the user's prompt conflicts with the
+configured `research_mode`:
+
+- **Autonomous** — auto-switches the mode and emits an `intake_decision`
+  (`action=switch`). Fully implemented.
+- **HITL (supervised)** — should ideally *pause for human confirmation* and then
+  *resume* on the confirmed mode. A pre-workflow pause/resume handshake (persist
+  a checkpoint, create a `hitl_request`, and rebuild the workflow with the
+  confirmed mode on resume) is **not yet wired**.
+
+Interim behavior (fail-safe, `server/app.py::_run_agent`): on `action=pause` the
+run emits the `intake_decision`, then a terminal message —
+*"Intake mismatch requires confirmation; resume not yet supported in HITL mode —
+re-run with the corrected mode or autonomous."* — marks the session `failed`,
+and **halts before the workflow is built**. It never silently proceeds on the
+original mode. Locked by
+`tests/unit/test_intake.py::TestHITLIntakePauseHalts::test_intake_hitl_pause_halts_not_proceeds`.
+
+**Stage 7 follow-up:** replace the halt with a real pre-workflow HITL pause +
+resume-with-corrected-mode handshake.
