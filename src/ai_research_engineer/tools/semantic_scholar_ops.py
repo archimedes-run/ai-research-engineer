@@ -101,7 +101,9 @@ def get_paper_details(paper_id: str, working_dir: str = "") -> str:
             "paperId": p.paperId,
             "title": p.title,
             "year": p.year,
-            "tldr": p.tldr.get("text") if p.tldr else None,
+            # p.tldr is a Tldr object (not a dict) — use attribute access, with a
+            # dict fallback for older library versions.
+            "tldr": (getattr(p.tldr, "text", None) or (p.tldr.get("text") if isinstance(p.tldr, dict) else None)) if p.tldr else None,
             "abstract": p.abstract,
             "citations": p.citationCount,
             "references": p.referenceCount,

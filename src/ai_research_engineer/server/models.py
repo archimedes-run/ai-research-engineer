@@ -19,5 +19,5 @@ class RunSessionRequest(BaseModel):
     domain: str = "aiml"
     research_mode: str = "novelty"
     template: str = "NeurReps_2024_Template"
-    use_graphify: bool = False
+    use_graphify: bool = True  # graphify code-graph is on by default (fail-soft if unavailable)
     hitl_enabled: bool = False
