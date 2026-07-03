@@ -674,11 +674,13 @@ def create_agent(
     # Lazy import breaks the claude_code ↔ adk circular dependency at module load time.
     from ai_research_engineer.agents.claude_code import ClaudeCodeAgent  # noqa: PLC0415
 
+    paper_writer_instructions = load_prompt("summary")
     paper_writer_agent = ClaudeCodeAgent(
         name="paper_writer_agent",
         description="Drafts the academic manuscript in LaTeX and compiles it to PDF.",
         working_dir=str(working_dir),
         output_key="paper_draft_summary",
+        task_prompt=paper_writer_instructions,
         after_agent_callback=create_compression_callback(event_threshold=40, overlap_size=20),
     )
 

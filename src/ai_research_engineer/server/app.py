@@ -13,7 +13,7 @@ from typing import AsyncGenerator, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request, Security
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import APIKeyHeader
 
 from ai_research_engineer.server.models import RunSessionRequest, SubmissionRequest
@@ -508,6 +508,18 @@ async def get_session_file_content(session_id: str, file_path: str):
         "too_large": False,
         "redacted": redacted,
     }
+
+
+@app.get("/api/sessions/{session_id}/paper.pdf")
+async def get_session_paper_pdf(session_id: str, _: None = Security(_require_token)):
+    session = RunStore.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    working_dir = RunStore.DATA_DIR / "runs" / session_id
+    pdf_path = working_dir / "results" / "final_research_paper.pdf"
+    if not pdf_path.exists():
+        raise HTTPException(status_code=404, detail="Paper PDF not yet compiled")
+    return FileResponse(pdf_path, media_type="application/pdf", filename="research_paper.pdf")
 
 
 @app.get("/api/sessions/{session_id}/stream")

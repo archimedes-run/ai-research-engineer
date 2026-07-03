@@ -62,9 +62,14 @@ def _track_paper(working_dir: str, paper_data: dict, source_tool: str):
 def search_papers(query: str, year: Optional[str] = None, min_citations: int = 0, limit: int = 10, working_dir: str = "") -> str:
     """Search papers by keyword with filters."""
     try:
+        # The ADK tool wrapper may pass these through as None when the LLM omits them.
+        # Coerce to safe defaults so downstream comparisons don't blow up.
+        min_citations = min_citations or 0
+        limit = limit or 10
+        year = year or None  # empty string -> None (Semantic Scholar rejects "")
         _enforce_1_rps_limit() # FIXED: Rate limit enforced
         results = sch.search_paper(query, year=year, limit=limit * 3, fields=['title', 'authors', 'year', 'abstract', 'citationCount', 'url', 'externalIds', 'citationStyles'])
-        
+
         papers = []
         for p in results:
             if p.citationCount is not None and p.citationCount >= min_citations:

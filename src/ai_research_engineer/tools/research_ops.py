@@ -28,29 +28,63 @@ sch = SemanticScholar(api_key=api_key)
 
 
 
+def _to_findpapers_query(query: str) -> str:
+    """Convert a natural-language query into a valid findpapers boolean query.
+
+    findpapers requires its own DSL: terms wrapped in ``[ ]`` and joined by
+    AND/OR (e.g. ``[dropout] AND [regularization]``). A raw title string —
+    especially one containing ``:`` — is rejected with "Invalid query format".
+    If the caller already used the DSL (contains ``[``), pass it through.
+    """
+    q = (query or "").strip()
+    if "[" in q and "]" in q:
+        return q
+    # Strip characters that break the findpapers parser, collapse whitespace.
+    cleaned = re.sub(r'[:()\[\]"\']', " ", q)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    if not cleaned:
+        return "[research]"
+    return f"[{cleaned}]"
+
+
 def omni_search_papers(query: str, limit: int = 10) -> str:
     """
-    Search for research papers across ALL major databases 
+    Search for research papers across ALL major databases
     (arXiv, PubMed, IEEE, ACM, Scopus) simultaneously using findpapers.
     """
-    logger.info(f"[Tool:omni_search] Querying all databases for: '{query}'")
+    import tempfile
+
+    from findpapers.utils import persistence_util
+
+    fp_query = _to_findpapers_query(query)
+    logger.info(f"[Tool:omni_search] Querying all databases for: '{query}' (findpapers: {fp_query})")
     try:
-        search_result = findpapers.search(query, limit_per_database=limit)
-        
+        # findpapers.search()'s FIRST positional arg is the output path — it writes
+        # results to disk and returns None. The query must be passed as a keyword.
+        with tempfile.TemporaryDirectory(prefix="omni_search_") as tmp:
+            outputpath = os.path.join(tmp, "search.json")
+            findpapers.search(outputpath, query=fp_query, limit_per_database=limit)
+            search_result = persistence_util.load(outputpath)
+
         results = []
         for paper in search_result.papers:
+            authors = paper.authors or []
+            # findpapers authors may be plain strings or objects with `.name`
+            author_names = [getattr(a, "name", a) for a in authors]
             results.append({
                 "title": paper.title,
-                "authors": [a.name for a in paper.authors],
+                "authors": author_names,
                 "year": paper.publication_date.year if paper.publication_date else "Unknown",
                 "abstract": paper.abstract[:500] + "..." if paper.abstract else "No abstract",
-                "databases": list(paper.databases),
-                "urls": list(paper.urls)
+                "databases": list(paper.databases) if paper.databases else [],
+                "urls": list(paper.urls) if paper.urls else [],
             })
-            
+
+        if not results:
+            return f"No papers found for query '{query}'. Try semantic_search_papers or arxiv_search_papers instead."
         return json.dumps(results[:limit], indent=2)
     except Exception as e:
-        return f"Error in Omni-Search: {e}"
+        return f"Error in Omni-Search: {e}. Tip: use semantic_search_papers or arxiv_search_papers for keyword queries."
 
 
 def build_citation_graph(paper_id: str, working_dir: str) -> str:

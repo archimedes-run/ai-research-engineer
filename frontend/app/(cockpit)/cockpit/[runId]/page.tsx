@@ -246,7 +246,43 @@ function CockpitStyles() {
       .hljs-vscode .hljs-operator,.hljs-vscode .hljs-punctuation { color: ${VS.text}; }
       .hljs-vscode .hljs-section,.hljs-vscode .hljs-strong { color: #569CD6; font-weight: 600; }
       .hljs-vscode .hljs-attribute { color: #9CDCFE; }
+
+      /* Archimedes logo — subtle pulsing glow while the agent is thinking */
+      @keyframes archimedes-glow {
+        0%, 100% { filter: drop-shadow(0 0 1px rgba(224,82,64,0.30)); }
+        50%      { filter: drop-shadow(0 0 7px rgba(224,82,64,0.70)); }
+      }
+      .archimedes-glow { animation: archimedes-glow 2.2s ease-in-out infinite; }
     `}</style>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Archimedes logo — animated avatar + thinking indicator
+// ---------------------------------------------------------------------------
+function ArchimedesMark({ size = 24, spinning = false, popIn = false }: { size?: number; spinning?: boolean; popIn?: boolean }) {
+  // Spinning: rotate continuously but pulse the angular speed — fast, slow, fast,
+  // slow — by covering uneven angle deltas in equal time slices with easeInOut.
+  // Ends on 720° (= 0 mod 360) so each loop is seamless.
+  const spinTransition = {
+    rotate: {
+      duration: 2.8,
+      repeat: Infinity,
+      ease: 'easeInOut' as const,
+      times: [0, 0.25, 0.5, 0.75, 1],
+    },
+  }
+  return (
+    <motion.img
+      src="/archimedes-removebg.png"
+      alt="Archimedes"
+      draggable={false}
+      style={{ width: size, height: size, objectFit: 'contain', flexShrink: 0 }}
+      className={spinning ? 'archimedes-glow' : undefined}
+      initial={popIn ? { rotate: -45, scale: 0.4, opacity: 0 } : false}
+      animate={spinning ? { rotate: [0, 240, 360, 600, 720] } : popIn ? { rotate: 0, scale: 1, opacity: 1 } : undefined}
+      transition={spinning ? spinTransition : { type: 'spring', stiffness: 220, damping: 13 }}
+    />
   )
 }
 
@@ -357,7 +393,7 @@ function StageProgress({ completedStages, activeStage, isTerminal }: {
 function MessageRow({ ev }: { ev: MessageEvent }) {
   const [open, setOpen] = useState(false)
   if (ev.is_thought) return (
-    <div className="my-1.5 ml-10">
+    <div className="my-1.5">
       <button onClick={() => setOpen(v => !v)} className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-md transition-colors hover:bg-black/[0.04]" style={{ color: C.muted }}>
         {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         <Sparkles className="w-3 h-3" style={{ opacity: 0.6 }} /> reasoning
@@ -370,10 +406,11 @@ function MessageRow({ ev }: { ev: MessageEvent }) {
     </div>
   )
   return (
-    <div className="flex gap-3 my-4">
-      <div className="w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold mt-0.5 shadow-sm"
-        style={{ background: `linear-gradient(135deg, ${C.brand}, #C43D2C)`, color: '#fff', fontFamily: 'var(--font-syne)' }}>A</div>
-      <div className="flex-1 min-w-0 rounded-2xl px-4 py-3 shadow-sm" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
+    <div className="my-5">
+      <div className="mb-2">
+        <ArchimedesMark size={34} popIn />
+      </div>
+      <div className="w-full min-w-0 rounded-2xl px-5 py-4 shadow-sm" style={{ background: C.surface, border: `1px solid ${C.border}` }}>
         <Markdown>{ev.content}</Markdown>
         {ev.is_partial && <span className="inline-block w-1.5 h-3.5 ml-0.5 align-middle animate-pulse rounded-sm" style={{ background: C.brand }} />}
       </div>
@@ -429,7 +466,7 @@ function ToolChip({ call, response }: { call: FunctionCallEvent; response?: Func
 
 function ToolGroup({ calls }: { calls: { call: FunctionCallEvent; response?: FunctionResponseEvent }[] }) {
   return (
-    <div className="my-2.5 ml-10 space-y-1">
+    <div className="my-2.5 space-y-1">
       {calls.map((c, i) => <ToolChip key={c.call.seq ?? `tc-${i}`} call={c.call} response={c.response} />)}
     </div>
   )
@@ -544,17 +581,11 @@ function StreamingStatus() {
     return () => clearInterval(id)
   }, [])
   return (
-    <div className="flex items-center gap-3 my-4 ml-10">
-      <div className="flex items-center gap-1">
-        {[0, 1, 2].map(d => (
-          <motion.span key={d} className="w-1.5 h-1.5 rounded-full" style={{ background: C.brand }}
-            animate={{ opacity: [0.25, 1, 0.25], y: [0, -2, 0] }}
-            transition={{ duration: 1.1, repeat: Infinity, delay: d * 0.18, ease: 'easeInOut' }} />
-        ))}
-      </div>
+    <div className="flex items-center gap-3 my-5">
+      <ArchimedesMark size={34} spinning />
       <AnimatePresence mode="wait">
         <motion.span key={i} className="text-sm italic"
-          style={{ color: C.muted, fontFamily: 'var(--font-cormorant)', fontSize: 16 }}
+          style={{ color: C.muted, fontFamily: 'var(--font-cormorant)', fontSize: 17 }}
           initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.35 }}>
           {GERUNDS[i]}…
         </motion.span>
@@ -652,7 +683,7 @@ function ActivityFeed({ events, runId, isTerminal, onAnswered }: {
   return (
     <div className="relative h-full">
       <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto feed-scroll">
-        <div className="px-6 py-6 max-w-3xl mx-auto">
+        <div className="max-w-3xl mx-auto px-4 py-6">
           {events.length === 0 && !isTerminal && (
             <div className="flex items-center gap-2 mt-4 text-sm" style={{ color: C.muted }}>
               <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: C.amber }} />
@@ -1292,8 +1323,8 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
 
         {/* Chat input (activity tab only) */}
         {activeTab === 'activity' && (
-          <div className="flex-shrink-0 px-4 py-3" style={{ borderTop: `1px solid ${C.border}`, background: C.surface }}>
-            <div className="max-w-3xl mx-auto flex items-end gap-3">
+          <div className="flex-shrink-0" style={{ borderTop: `1px solid ${C.border}`, background: C.surface }}>
+            <div className="max-w-3xl mx-auto px-4 py-3 flex items-end gap-3">
               <div className="flex-1 rounded-xl border overflow-hidden" style={{ borderColor: C.border, background: C.bg }}>
                 <textarea rows={1} value={chatMsg}
                   onChange={e => { setChatMsg(e.target.value); e.target.style.height = 'auto'; e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px` }}
