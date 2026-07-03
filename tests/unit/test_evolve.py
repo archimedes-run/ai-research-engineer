@@ -278,6 +278,39 @@ class TestSealedEvaluation:
         assert payload["score"] == 0.9
         assert payload["duration_s"] > 0
 
+    def test_mutation_results_deleted_before_eval_tamper_proof(self, tmp_path):
+        """The mutation writes results.json{score:999} and eval.sh writes nothing
+        -> failed/None. Uses a FORGED future mtime so the score would pass a bare
+        `mtime > started` fence; the pre-eval deletion makes it tamper-proof
+        (a surviving results.json is proof eval.sh produced it)."""
+        import os
+        import time as _time
+
+        workflow = tmp_path / "workflow"
+        workflow.mkdir()
+        results = workflow / "results.json"
+        results.write_text('{"score": 999}')
+        # Forge a mtime one hour in the future — this defeats a naive mtime fence.
+        future = _time.time() + 3600
+        os.utime(results, (future, future))
+        # eval.sh runs cleanly (exit 0) but writes nothing.
+        eval_sh = workflow / "eval.sh"
+        eval_sh.write_text("#!/usr/bin/env bash\ntrue\n")
+        eval_sh.chmod(0o755)
+
+        agent = EvolutionLoopAgent(
+            coding_agent=_FakeAnalyzerAgent(),
+            analyzer_agent=_FakeAnalyzerAgent(),
+            database=_FakeDatabase([]),
+            best_snapshot=_FakeBestSnapshot(),
+            max_generations=1,
+        )
+        score, status, _duration = agent._evaluate(tmp_path)
+
+        assert score is None, "a forged future-dated results.json must not be trusted"
+        assert status == "failed"
+        assert not results.exists(), "the pre-existing results.json must be deleted before eval.sh runs"
+
 
 class TestSealedBootstrap:
     """Generation 0 must be scored by the orchestrator's own sealed _evaluate(),

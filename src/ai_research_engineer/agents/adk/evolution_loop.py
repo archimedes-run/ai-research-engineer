@@ -105,6 +105,11 @@ class EvolutionLoopAgent(BaseAgent):
             logger.error("[EvolutionLoop] eval.sh not found at %s — cannot evaluate.", eval_script)
             return None, "failed", 0.0
 
+        # Tamper-proof the mtime fence: remove any pre-existing results.json (e.g.
+        # one the mutation wrote, possibly with a forged/future mtime) so that a
+        # surviving results.json is proof the sealed eval itself produced it.
+        results_file.unlink(missing_ok=True)
+
         started = time.time()
         try:
             proc = subprocess.run(
