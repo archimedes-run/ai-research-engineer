@@ -448,6 +448,68 @@ class TestStageStatusHonesty:
 
 
 # ---------------------------------------------------------------------------
+# No-progress guard (S0-3)
+# ---------------------------------------------------------------------------
+
+
+class TestNoProgressGuard:
+    """A stuck orchestration (no disk/criteria change) must force reflection on
+    the 2nd identical iteration and terminate with partial results on the 3rd."""
+
+    def test_forces_reflection_then_terminates(self, tmp_path):
+        from ai_research_engineer.agents.adk.stage_orchestrator import (
+            FORCED_REFLECTION_INSTRUCTION,
+            StageOrchestratorAgent,
+        )
+
+        # Empty workflow/ and results/ -> the file signature is stable across iters.
+        (tmp_path / "workflow").mkdir()
+        (tmp_path / "results").mkdir()
+
+        def reopen(state):
+            # The reflector never accepts the stage as done, so remaining stages
+            # never empty and the status vector stays identical -> no progress.
+            for s in state.get("high_level_stages", []):
+                s["completed"] = False
+                s["status"] = "pending"
+
+        orch = StageOrchestratorAgent(
+            implementation_loop=_FakeSubAgent("impl"),  # writes nothing, sets no outcome
+            criteria_checker=_FakeSubAgent("checker"),  # criteria stay not-met
+            stage_reflector=_FakeSubAgent("reflector", state_mutation=reopen),
+            working_dir=str(tmp_path),
+        )
+
+        state = {
+            "high_level_stages": [{"index": 0, "title": "S0", "description": "d", "completed": False}],
+            "high_level_success_criteria": [{"index": 0, "criteria": "acc>0.9", "met": False}],
+            "stage_implementations": [],
+        }
+        ctx = _make_ctx(state, session_id="orch-no-progress")
+
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", tmp_path / "pipeline.db"):
+            events = asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        # progress_hash emitted each iteration; run stops at iteration 3 (not max).
+        hashes = state["_progress_hashes"]
+        assert [h["iteration"] for h in hashes] == [1, 2, 3]
+        assert len({h["hash"] for h in hashes}) == 1  # all identical -> no progress
+
+        # Forcing instruction injected on the 2nd identical iteration.
+        assert state["stage_reflector_forced_instruction"] == FORCED_REFLECTION_INSTRUCTION
+
+        # Gate events, in order: forced reflection (iter 2) then termination (iter 3).
+        outcomes = [g["outcome"] for g in state["_gate_decisions"] if g["loop"] == "stage_orchestrator"]
+        assert outcomes == ["no_progress_forced_reflection", "no_progress_terminated"]
+
+        # Emitted events carry the progress_hash and the partial-results termination.
+        texts = [e.content.parts[0].text for e in events if e.content and e.content.parts]
+        assert any("progress_hash" in t for t in texts)
+        assert any("No-progress termination" in t for t in texts)
+        assert any("partial results" in t.lower() for t in texts)
+
+
+# ---------------------------------------------------------------------------
 # Failure isolation: tree errors must not affect orchestrator output
 # ---------------------------------------------------------------------------
 

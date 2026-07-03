@@ -980,6 +980,8 @@ def create_agent(
         stage_reflector=stage_reflector,
         name="stage_orchestrator",
         description="Orchestrates stage-by-stage implementation with adaptive planning.",
+        working_dir=str(working_dir),
+        hitl_enabled=hitl_enabled,
     )
 
     # ------------------------- Root Workflow -------------------------

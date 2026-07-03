@@ -120,6 +120,20 @@ class GateDecisionEvent(BaseEvent):
 
 
 @dataclass
+class ProgressHashEvent(BaseEvent):
+    """Per-iteration no-progress hash from the stage orchestrator (S0-3 / S0-9).
+
+    ``hash`` is a sha256 over the criteria met-bitmap, stage status vector, and
+    the (path, mtime, size) signature of files under workflow/ and results/.
+    Repeated identical hashes across iterations signal a stuck orchestration.
+    """
+
+    type: Literal["progress_hash"] = "progress_hash"
+    hash: str = ""
+    iteration: int = 0
+
+
+@dataclass
 class VerificationEvent(BaseEvent):
     """Citation/reference verification summary event emitted after paper_writing_loop."""
 
@@ -156,6 +170,7 @@ StreamingEvent = (
     | VerificationEvent
     | HITLRequestEvent
     | GateDecisionEvent
+    | ProgressHashEvent
 )
 
 
@@ -172,6 +187,7 @@ EVENT_TYPE_MAP = {
     "verification": VerificationEvent,
     "hitl_request": HITLRequestEvent,
     "gate_decision": GateDecisionEvent,
+    "progress_hash": ProgressHashEvent,
 }
 
 

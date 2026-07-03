@@ -7,6 +7,7 @@ from ai_research_engineer.core.events import (
     FunctionResponseEvent,
     GateDecisionEvent,
     MessageEvent,
+    ProgressHashEvent,
     UsageEvent,
     create_event,
     event_to_dict,
@@ -171,6 +172,22 @@ class TestGateDecisionEvent:
         assert payload["loop"] == "ideation_loop"
         assert payload["outcome"] == "approved"
         assert payload["reason"] == "confirmation agent approved"
+
+
+class TestProgressHashEvent:
+    """Test ProgressHashEvent (S0-3 / S0-9)."""
+
+    def test_progress_hash_event_creation(self):
+        event = ProgressHashEvent(hash="abc123", iteration=2, timestamp="12:34:56.789")
+        assert event.type == "progress_hash"
+        assert event.hash == "abc123"
+        assert event.iteration == 2
+
+    def test_progress_hash_registered_in_factory(self):
+        payload = event_to_dict(create_event("progress_hash", hash="deadbeef", iteration=3))
+        assert payload["type"] == "progress_hash"
+        assert payload["hash"] == "deadbeef"
+        assert payload["iteration"] == 3
 
 
 class TestEventToDict:

@@ -27,6 +27,7 @@ from ai_research_engineer.core.events import (
     GateDecisionEvent,
     HITLRequestEvent,
     MessageEvent,
+    ProgressHashEvent,
     UsageEvent,
     VerificationEvent,
     event_to_dict,
@@ -567,6 +568,20 @@ class AIEngineer:
                         yield event_to_dict(gd_event)
             except Exception as _ge:
                 logger.warning("gate_decision emission failed (fail-soft): %s", _ge)
+
+            # Emit progress_hash events recorded by the stage orchestrator (S0-3).
+            try:
+                session = getattr(self, "session", None)
+                if session is not None:
+                    for ph in session.state.get("_progress_hashes", []) or []:
+                        ph_event = ProgressHashEvent(
+                            hash=ph.get("hash", ""),
+                            iteration=ph.get("iteration", 0),
+                            timestamp=datetime.now().strftime("%H:%M:%S.%f")[:-3],
+                        )
+                        yield event_to_dict(ph_event)
+            except Exception as _pe:
+                logger.warning("progress_hash emission failed (fail-soft): %s", _pe)
 
             # Emit VerificationEvent if the reference_verifier_agent ran
             try:

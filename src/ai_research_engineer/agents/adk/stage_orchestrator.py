@@ -6,7 +6,9 @@ to the implementation loop, checks success criteria after each stage, and adapts
 remaining stages through reflection.
 """
 
+import hashlib
 import logging
+from pathlib import Path
 from typing import Any, AsyncGenerator, Callable, Dict, List, Optional
 
 from google.adk.agents import BaseAgent, InvocationContext
@@ -18,6 +20,13 @@ from ai_research_engineer.agents.adk.event_compression import compress_events_ma
 
 
 logger = logging.getLogger(__name__)
+
+# Injected into the reflector when the orchestrator detects two consecutive
+# no-progress iterations (S0-3).
+FORCED_REFLECTION_INSTRUCTION = (
+    "You MUST either propose a concrete stage modification/new stage or explicitly "
+    "declare the remaining criteria unmeetable with reasons."
+)
 
 # Stage status values (S0-2). A stage is only honestly "completed" when its
 # implementation loop was actually approved; otherwise it is recorded as
@@ -101,6 +110,8 @@ class StageOrchestratorAgent(BaseAgent):
     _implementation_loop: Any = PrivateAttr()
     _criteria_checker: Any = PrivateAttr()
     _stage_reflector: Any = PrivateAttr()
+    _working_dir: Optional[str] = PrivateAttr(default=None)
+    _hitl_enabled: bool = PrivateAttr(default=False)
 
     def __init__(
         self,
@@ -109,11 +120,17 @@ class StageOrchestratorAgent(BaseAgent):
         stage_reflector: BaseAgent,
         name: str = "stage_orchestrator",
         description: str = "Orchestrates stage-by-stage implementation with criteria checking",
+        working_dir: Optional[str] = None,
+        hitl_enabled: bool = False,
     ):
         super().__init__(name=name, description=description)
         self._implementation_loop = implementation_loop
         self._criteria_checker = criteria_checker
         self._stage_reflector = stage_reflector
+        # working_dir is used by the S0-3 no-progress guard to hash files under
+        # workflow/ and results/; hitl_enabled selects pause vs terminate.
+        self._working_dir = working_dir
+        self._hitl_enabled = hitl_enabled
 
     @property
     def implementation_loop(self) -> BaseAgent:
@@ -142,6 +159,60 @@ class StageOrchestratorAgent(BaseAgent):
         except Exception as exc:
             logger.warning("[StageOrchestrator] Tree write ignored: %s", exc)
             return None
+
+    def _compute_progress_hash(self, criteria: List[Dict], stages: List[Dict]) -> str:
+        """sha256 over the criteria met-bitmap, stage status vector, and the
+        (path, mtime, size) signature of files under workflow/ and results/ (S0-3).
+        """
+        parts: List[str] = [
+            "criteria:" + "".join("1" if c.get("met", False) else "0" for c in criteria),
+            "stages:"
+            + ",".join(
+                str(s.get("status") or ("completed" if s.get("completed", False) else "pending")) for s in stages
+            ),
+        ]
+
+        file_sig: List[str] = []
+        if self._working_dir:
+            base = Path(self._working_dir)
+            for sub in ("workflow", "results"):
+                d = base / sub
+                if not d.exists():
+                    continue
+                for p in d.rglob("*"):
+                    if p.is_file():
+                        try:
+                            st = p.stat()
+                            file_sig.append(f"{p.relative_to(base)}:{st.st_mtime_ns}:{st.st_size}")
+                        except OSError:
+                            continue
+        parts.append("files:" + "|".join(sorted(file_sig)))
+
+        return hashlib.sha256("\n".join(parts).encode("utf-8")).hexdigest()
+
+    def _record_progress_hash(self, state: dict, progress_hash: str, iteration: int) -> Event:
+        """Append a progress_hash record to state and build its ADK event (S0-3/S0-9)."""
+        entries = state.get("_progress_hashes")
+        if not isinstance(entries, list):
+            entries = []
+        entries.append({"hash": progress_hash, "iteration": iteration})
+        state["_progress_hashes"] = entries
+        return Event(
+            author=self.name,
+            content=types.Content(
+                role="model",
+                parts=[types.Part(text=f"\n\n🔁 progress_hash (iteration {iteration}): {progress_hash[:12]}…\n\n")],
+            ),
+            turn_complete=False,
+        )
+
+    def _record_gate_decision(self, state: dict, outcome: str, reason: str) -> None:
+        """Append a structured gate decision to state (shared with S0-1 emission)."""
+        decisions = state.get("_gate_decisions")
+        if not isinstance(decisions, list):
+            decisions = []
+        decisions.append({"loop": self.name, "outcome": outcome, "reason": reason})
+        state["_gate_decisions"] = decisions
 
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         """
@@ -328,6 +399,10 @@ class StageOrchestratorAgent(BaseAgent):
         # Main orchestration loop
         iteration = 0
         max_iterations = 50  # Safety limit to prevent infinite loops
+
+        # S0-3 no-progress guard state (tracked across iterations).
+        last_progress_hash: Optional[str] = None
+        identical_run = 0
 
         while iteration < max_iterations:
             iteration += 1
@@ -668,6 +743,84 @@ class StageOrchestratorAgent(BaseAgent):
 
             # Update current_stage_index for tracking (keep 0-indexed for consistency)
             state["current_stage_index"] = stage_idx
+
+            # === S0-3: No-progress guard ===
+            # After a full stage cycle, hash the observable state. Two identical
+            # hashes in a row -> force the reflector to act; three -> terminate.
+            criteria_now = state.get("high_level_success_criteria", [])
+            stages_now = state.get("high_level_stages", [])
+            progress_hash = self._compute_progress_hash(criteria_now, stages_now)
+            yield self._record_progress_hash(state, progress_hash, iteration)
+
+            if progress_hash == last_progress_hash:
+                identical_run += 1
+            else:
+                identical_run = 1
+                last_progress_hash = progress_hash
+
+            if identical_run >= 3:
+                reason = (
+                    f"No observable progress for {identical_run} consecutive iterations "
+                    f"(progress_hash={progress_hash[:12]}…)."
+                )
+                logger.error("[StageOrchestrator] %s Terminating orchestration.", reason)
+                self._record_gate_decision(state, "no_progress_terminated", reason)
+                if self._hitl_enabled:
+                    # Supervised: pause for a human instead of a hard terminate.
+                    state["_hitl_paused"] = "gate_no_progress"
+                    state["_hitl_question"] = (
+                        "The stage orchestrator made no progress for three consecutive "
+                        "iterations. Review the partial results and advise, or approve stopping."
+                    )
+                yield Event(
+                    author=self.name,
+                    content=types.Content(
+                        role="model",
+                        parts=[
+                            types.Part(
+                                text=(
+                                    f"\n\n🛑 **No-progress termination** — {reason} "
+                                    "Proceeding to summary with partial results.\n\n"
+                                )
+                            )
+                        ],
+                    ),
+                    turn_complete=True,
+                )
+                if _tree is not None:
+                    self._tree_safe(_tree.close)
+                return
+
+            if identical_run == 2:
+                logger.warning(
+                    "[StageOrchestrator] No progress across 2 iterations (progress_hash=%s…); forcing reflection.",
+                    progress_hash[:12],
+                )
+                state["stage_reflector_forced_instruction"] = FORCED_REFLECTION_INSTRUCTION
+                self._record_gate_decision(
+                    state,
+                    "no_progress_forced_reflection",
+                    f"No progress across 2 iterations (progress_hash={progress_hash[:12]}…); "
+                    "forcing stage_reflector to modify the plan or declare criteria unmeetable.",
+                )
+                yield Event(
+                    author=self.name,
+                    content=types.Content(
+                        role="model",
+                        parts=[
+                            types.Part(
+                                text=(
+                                    "\n\n⏳ **No-progress detected (x2)** — re-running the reflector "
+                                    "with a forcing instruction to modify the plan or declare the "
+                                    "remaining criteria unmeetable.\n\n"
+                                )
+                            )
+                        ],
+                    ),
+                    turn_complete=False,
+                )
+                async for event in self.stage_reflector.run_async(ctx):
+                    yield event
 
         # Safety exit if max iterations reached
         logger.error(f"[StageOrchestrator] Reached maximum iterations ({max_iterations}). Exiting orchestration.")
