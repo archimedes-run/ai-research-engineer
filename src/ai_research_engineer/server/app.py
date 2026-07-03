@@ -612,6 +612,31 @@ async def _run_agent(
     working_dir.mkdir(parents=True, exist_ok=True)
     start_time = datetime.now()
 
+    # Intake router (S0-5): reconcile the detected intent with research_mode
+    # BEFORE the workflow is built. Autonomous auto-switches the mode; supervised
+    # surfaces a pause; ambiguous warns. Fail-soft — intake never blocks a run.
+    try:
+        from ai_research_engineer.core.intake import classify_intent, reconcile_mode
+
+        intent = classify_intent(topic)
+        selected_mode, action = reconcile_mode(intent, research_mode, hitl_enabled=bool(hitl_enabled))
+        if action != "proceed":
+            intake_event = {
+                "type": "intake_decision",
+                "detected_intent": intent,
+                "selected_mode": selected_mode,
+                "action": action,
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+            }
+            await queue.put(intake_event)
+            RunStore.append_event(session_id, intake_event)
+            logger.info("[Intake] intent=%s action=%s selected_mode=%s", intent, action, selected_mode)
+        if action == "switch":
+            # Autonomous: adopt the mode implied by the detected intent.
+            research_mode = selected_mode
+    except Exception as _ie:
+        logger.warning("[Intake] intake router failed (fail-soft): %s", _ie)
+
     # Build code graph before starting the agent (fail-soft)
     if use_graphify:
         try:

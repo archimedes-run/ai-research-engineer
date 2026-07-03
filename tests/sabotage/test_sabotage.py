@@ -3,23 +3,15 @@
 Six adversarial scenarios, all driven by in-process fakes — no real LLM calls
 and no network. Each is pinned to the Stage 0 feature that makes it pass.
 
-Scenarios (a)–(d) exercise implemented features and drive the real seams:
-(a)/(b) S0-1 loop outcomes + S0-2 honest stages, (c)/(d) the S0-4 sealed
-evolve evaluator. The remaining scenarios pin features that are still pending,
-so they carry ``@pytest.mark.xfail(strict=True, ...)``:
-  * the graphify-stripping ``load_prompt`` from S0-7,
-  * the intake classifier module from S0-5.
-
-Pending imports/calls happen *inside* the still-xfail test bodies so that
-collection never errors — only the test itself fails (which is what xfail
-records).
+All six scenarios exercise implemented Stage 0 features and drive the real
+seams: (a)/(b) S0-1 loop outcomes + S0-2 honest stages, (c)/(d) the S0-4 sealed
+evolve evaluator, (e) the graphify-stripping ``load_prompt`` (S0-7), and (f) the
+intake classifier + reconciliation (S0-5).
 """
 
 import json
 import time
 from pathlib import Path
-
-import pytest
 
 
 # --------------------------------------------------------------------------- #
@@ -285,12 +277,11 @@ def test_d_eval_timeout_yields_timeout_status_and_none_score(tmp_path):
 # --------------------------------------------------------------------------- #
 # (e) graphify unavailable -> assembled prompts contain zero "graphify"
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(strict=True, reason="Stage 0 feature pending: S0-7")
 def test_e_graphify_unavailable_strips_all_graphify_language():
+    # S0-7 is implemented — with graphify unavailable, load_prompt strips the
+    # <!-- BEGIN:graphify -->..<!-- END:graphify --> sections from both prompts.
     from ai_research_engineer.prompts import load_prompt
 
-    # S0-7 (pending): with graphify unavailable, load_prompt strips the
-    # <!-- BEGIN:graphify -->..<!-- END:graphify --> sections from both prompts.
     coding = load_prompt("coding_base", domain="aiml", tool_availability={"graphify": False})
     review = load_prompt("coding_review", domain="aiml", tool_availability={"graphify": False})
 
@@ -306,11 +297,10 @@ def test_e_graphify_unavailable_strips_all_graphify_language():
 # --------------------------------------------------------------------------- #
 # (f) "Replicate ..." prompt under research_mode="novelty" -> intake_decision
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(strict=True, reason="Stage 0 feature pending: S0-5/S0-9")
 def test_f_replicate_prompt_under_novelty_mode_fires_intake_decision():
-    from ai_research_engineer.core.intake import classify_intent  # pending module (S0-5)
-
+    # S0-5 is implemented — drive the real classifier + reconciliation.
     from ai_research_engineer.core.events import create_event, event_to_dict
+    from ai_research_engineer.core.intake import classify_intent, reconcile_mode
 
     prompt = "Replicate tabular Q-learning on FrozenLake and reproduce the reported success rate."
     research_mode = "novelty"
@@ -318,19 +308,15 @@ def test_f_replicate_prompt_under_novelty_mode_fires_intake_decision():
     intent = classify_intent(prompt)
     assert intent == "replicate", "a 'Replicate ...' prompt must classify as replicate"
 
-    # Intent conflicts with the configured mode -> autonomous auto-switches
-    # (or HITL pauses). Either way an intake_decision event must fire.
-    conflict = intent == "replicate" and research_mode == "novelty"
-    assert conflict
-    action = "switch"  # autonomous default; "pause" under hitl
+    # Intent conflicts with the configured mode -> autonomous auto-switches to
+    # replication (HITL would pause); either way an intake_decision must fire.
+    selected_mode, action = reconcile_mode(intent, research_mode, hitl_enabled=False)
+    assert selected_mode == "replication"
+    assert action == "switch"
 
-    event = create_event(
-        "intake_decision",
-        detected_intent=intent,
-        selected_mode="replication",
-        action=action,
+    payload = event_to_dict(
+        create_event("intake_decision", detected_intent=intent, selected_mode=selected_mode, action=action)
     )
-    payload = event_to_dict(event)
     assert payload["type"] == "intake_decision"
     assert payload["detected_intent"] == "replicate"
     assert payload["action"] in {"switch", "pause"}

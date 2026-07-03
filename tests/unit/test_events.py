@@ -7,6 +7,7 @@ from ai_research_engineer.core.events import (
     FunctionCallEvent,
     FunctionResponseEvent,
     GateDecisionEvent,
+    IntakeDecisionEvent,
     MessageEvent,
     ProgressHashEvent,
     UsageEvent,
@@ -215,6 +216,27 @@ class TestEvalResultEvent:
         assert payload["status"] == "timeout"
         assert payload.get("score") is None
         assert "score" not in payload
+
+
+class TestIntakeDecisionEvent:
+    """Test IntakeDecisionEvent (S0-5 / S0-9)."""
+
+    def test_intake_decision_event_creation(self):
+        event = IntakeDecisionEvent(
+            detected_intent="replicate", selected_mode="replication", action="switch", timestamp="12:34:56.789"
+        )
+        assert event.type == "intake_decision"
+        assert event.detected_intent == "replicate"
+        assert event.selected_mode == "replication"
+        assert event.action == "switch"
+
+    def test_intake_decision_registered_in_factory(self):
+        payload = event_to_dict(
+            create_event("intake_decision", detected_intent="optimize", selected_mode="evolve", action="switch")
+        )
+        assert payload["type"] == "intake_decision"
+        assert payload["detected_intent"] == "optimize"
+        assert payload["action"] == "switch"
 
 
 class TestEventToDict:

@@ -95,6 +95,30 @@ def is_network_disabled() -> bool:
     return disable_network in ("true", "1")
 
 
+def probe_tool_availability() -> dict:
+    """Probe which optional tools the runtime actually provides (S0-7).
+
+    Returns a mapping consumed by ``load_prompt(..., tool_availability=...)`` so
+    that prompt sections guarded by ``<!-- BEGIN:<tool> -->`` markers are dropped
+    when the tool is absent. Fail-soft: any probe error is treated as absent.
+    """
+    import shutil
+
+    graphify = False
+    try:
+        from ai_research_engineer.core.graphify import graphify_available
+
+        graphify = bool(graphify_available())
+    except Exception:
+        graphify = False
+
+    return {
+        "graphify": graphify,
+        "network": not is_network_disabled(),
+        "pdflatex": shutil.which("pdflatex") is not None,
+    }
+
+
 # DEPRECATED: Use review_confirmation agents instead
 # This function is kept for backward compatibility but should not be used in new code.
 # Loop exit decisions should be made by dedicated review_confirmation agents with

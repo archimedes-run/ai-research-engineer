@@ -150,6 +150,20 @@ class EvalResultEvent(BaseEvent):
 
 
 @dataclass
+class IntakeDecisionEvent(BaseEvent):
+    """Intake router decision emitted before the workflow runs (S0-5 / S0-9).
+
+    ``detected_intent`` is one of replicate/novel/optimize/ambiguous;
+    ``action`` is one of switch/pause/warn/proceed.
+    """
+
+    type: Literal["intake_decision"] = "intake_decision"
+    detected_intent: str = ""
+    selected_mode: str = ""
+    action: str = ""
+
+
+@dataclass
 class VerificationEvent(BaseEvent):
     """Citation/reference verification summary event emitted after paper_writing_loop."""
 
@@ -188,6 +202,7 @@ StreamingEvent = (
     | GateDecisionEvent
     | ProgressHashEvent
     | EvalResultEvent
+    | IntakeDecisionEvent
 )
 
 
@@ -206,6 +221,7 @@ EVENT_TYPE_MAP = {
     "gate_decision": GateDecisionEvent,
     "progress_hash": ProgressHashEvent,
     "eval_result": EvalResultEvent,
+    "intake_decision": IntakeDecisionEvent,
 }
 
 

@@ -29,11 +29,19 @@ def get_claude_instructions(state: Dict[str, Any], working_dir: str) -> str:
     str
         The complete system instructions with substituted variables.
     """
-    # Load the coding base prompt
+    # Load the coding base prompt, stripping guidance for tools this runtime
+    # lacks (S0-7). Probe is fail-soft; on any error we keep all sections.
     try:
         from ai_research_engineer.prompts import load_prompt
 
-        base_content = load_prompt("coding_base")
+        try:
+            from ai_research_engineer.agents.adk.utils import probe_tool_availability
+
+            tool_availability = probe_tool_availability()
+        except Exception:
+            tool_availability = None
+
+        base_content = load_prompt("coding_base", tool_availability=tool_availability)
     except FileNotFoundError:
         # Fallback to a simple default
         base_content = """You are an ML coding assistant. Implement the given task completely and thoroughly.
