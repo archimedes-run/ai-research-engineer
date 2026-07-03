@@ -134,6 +134,22 @@ class ProgressHashEvent(BaseEvent):
 
 
 @dataclass
+class EvalResultEvent(BaseEvent):
+    """Sealed evaluation result for an evolution generation (S0-4 / S0-9).
+
+    ``score`` is ``None`` when the sealed ``eval.sh`` failed, timed out, or did
+    not (re)write results.json after the orchestrator started evaluating.
+    ``status`` is one of "success", "failed", or "timeout".
+    """
+
+    type: Literal["eval_result"] = "eval_result"
+    gen: int = 0
+    score: Optional[float] = None
+    status: str = ""
+    duration_s: float = 0.0
+
+
+@dataclass
 class VerificationEvent(BaseEvent):
     """Citation/reference verification summary event emitted after paper_writing_loop."""
 
@@ -171,6 +187,7 @@ StreamingEvent = (
     | HITLRequestEvent
     | GateDecisionEvent
     | ProgressHashEvent
+    | EvalResultEvent
 )
 
 
@@ -188,6 +205,7 @@ EVENT_TYPE_MAP = {
     "hitl_request": HITLRequestEvent,
     "gate_decision": GateDecisionEvent,
     "progress_hash": ProgressHashEvent,
+    "eval_result": EvalResultEvent,
 }
 
 

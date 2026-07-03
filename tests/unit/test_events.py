@@ -3,6 +3,7 @@
 from ai_research_engineer.core.events import (
     CompletedEvent,
     ErrorEvent,
+    EvalResultEvent,
     FunctionCallEvent,
     FunctionResponseEvent,
     GateDecisionEvent,
@@ -188,6 +189,32 @@ class TestProgressHashEvent:
         assert payload["type"] == "progress_hash"
         assert payload["hash"] == "deadbeef"
         assert payload["iteration"] == 3
+
+
+class TestEvalResultEvent:
+    """Test EvalResultEvent (S0-4 / S0-9)."""
+
+    def test_eval_result_event_creation(self):
+        event = EvalResultEvent(gen=2, score=0.9, status="success", duration_s=1.25, timestamp="12:34:56.789")
+        assert event.type == "eval_result"
+        assert event.gen == 2
+        assert event.score == 0.9
+        assert event.status == "success"
+        assert event.duration_s == 1.25
+
+    def test_eval_result_success_round_trip(self):
+        payload = event_to_dict(create_event("eval_result", gen=1, score=0.7, status="success", duration_s=2.0))
+        assert payload["type"] == "eval_result"
+        assert payload["score"] == 0.7
+        assert payload["status"] == "success"
+        assert payload["duration_s"] == 2.0
+
+    def test_eval_result_none_score_omitted(self):
+        """A failed/timeout eval has score=None, which event_to_dict omits."""
+        payload = event_to_dict(create_event("eval_result", gen=3, score=None, status="timeout", duration_s=0.5))
+        assert payload["status"] == "timeout"
+        assert payload.get("score") is None
+        assert "score" not in payload
 
 
 class TestEventToDict:

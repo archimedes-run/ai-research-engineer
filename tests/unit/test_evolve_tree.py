@@ -91,6 +91,11 @@ def _run_evolve(tmp_path: Path, session_id: str = "evolve-tree-run", max_gens: i
     workflow_dir.mkdir(parents=True)
     (workflow_dir / "results.json").write_text('{"score": 0.42}')
     (workflow_dir / "initial_program.py").write_text("# baseline")
+    # S0-4: the orchestrator runs eval.sh itself; provide a real one that writes
+    # the score so each generation is scored via the sealed evaluator.
+    eval_sh = workflow_dir / "eval.sh"
+    eval_sh.write_text("#!/usr/bin/env bash\necho '{\"score\": 0.42}' > results.json\n")
+    eval_sh.chmod(0o755)
 
     ctx = _FakeCtx(session_id=session_id)
     ctx.session.state["working_dir"] = str(working_dir)

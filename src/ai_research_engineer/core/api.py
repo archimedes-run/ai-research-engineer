@@ -22,6 +22,7 @@ from google.genai import types
 from ai_research_engineer.core.events import (
     CompletedEvent,
     ErrorEvent,
+    EvalResultEvent,
     FunctionCallEvent,
     FunctionResponseEvent,
     GateDecisionEvent,
@@ -582,6 +583,22 @@ class AIEngineer:
                         yield event_to_dict(ph_event)
             except Exception as _pe:
                 logger.warning("progress_hash emission failed (fail-soft): %s", _pe)
+
+            # Emit sealed eval_result events from the evolution loop (S0-4).
+            try:
+                session = getattr(self, "session", None)
+                if session is not None:
+                    for er in session.state.get("_eval_results", []) or []:
+                        er_event = EvalResultEvent(
+                            gen=er.get("gen", 0),
+                            score=er.get("score"),
+                            status=er.get("status", ""),
+                            duration_s=er.get("duration_s", 0.0),
+                            timestamp=datetime.now().strftime("%H:%M:%S.%f")[:-3],
+                        )
+                        yield event_to_dict(er_event)
+            except Exception as _ee:
+                logger.warning("eval_result emission failed (fail-soft): %s", _ee)
 
             # Emit VerificationEvent if the reference_verifier_agent ran
             try:

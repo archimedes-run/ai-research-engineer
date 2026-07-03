@@ -189,3 +189,89 @@ class TestDatabaseSampling:
             sampled = db.sample(n=1)
             assert len(sampled) == 1
             assert sampled[0].name == "test"
+
+
+# ---------------------------------------------------------------------------
+# Sealed evaluation (S0-4)
+# ---------------------------------------------------------------------------
+
+
+class TestNoneScoreDatabase:
+    """Database must accept score=None nodes and samplers must skip them (S0-4)."""
+
+    def test_add_none_score_and_sample_skips_it(self, tmp_path):
+        with (
+            patch("ai_research_engineer.evolve.database.database.EmbeddingService") as mock_emb,
+            patch("ai_research_engineer.evolve.database.database.FAISSIndex") as mock_faiss,
+        ):
+            mock_emb.return_value.encode.return_value = [0.0] * 384
+            mock_faiss.return_value.add.return_value = None
+            mock_faiss.return_value.search.return_value = []
+            mock_faiss.return_value.save.return_value = None
+
+            from ai_research_engineer.evolve.database.database import Database
+
+            db = Database(storage_dir=tmp_path / "none_score", sampling_algorithm="ucb1")
+            scored = Node(name="scored", code="x=1", score=1.0, status="success")
+            failed = Node(name="failed", code="y=2", score=None, status="failed")
+            db.add(scored)  # accepted
+            db.add(failed)  # accepted, but must never be sampled
+
+            assert len(db.get_all()) == 2
+            for _ in range(5):
+                sampled = db.sample(n=1)
+                assert sampled and sampled[0].name == "scored"
+
+
+class TestSealedEvaluation:
+    """The orchestrator runs eval.sh itself; the committed score comes only from
+    a results.json that eval.sh (re)wrote after the eval started (S0-4)."""
+
+    def test_happy_path_real_eval_writes_score(self, tmp_path):
+        workflow = tmp_path / "workflow"
+        workflow.mkdir()
+        (workflow / PROGRAM_FILENAME).write_text("# baseline program\n")
+        (workflow / "results.json").write_text('{"score": 0.5}')  # baseline seed score
+
+        # A real, tiny eval.sh that writes a fresh score to results.json.
+        eval_sh = workflow / "eval.sh"
+        eval_sh.write_text("#!/usr/bin/env bash\necho '{\"score\": 0.9}' > results.json\n")
+        eval_sh.chmod(0o755)
+
+        db = _FakeDatabase([])
+        agent = EvolutionLoopAgent(
+            coding_agent=_FakeAnalyzerAgent(),  # no-op: never touches results.json
+            analyzer_agent=_FakeAnalyzerAgent(),
+            database=db,
+            best_snapshot=_FakeBestSnapshot(),
+            max_generations=1,
+        )
+
+        ctx = _FakeCtx()
+        ctx.session.id = "sealed-happy"
+        ctx.session.state["working_dir"] = str(tmp_path)
+
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", tmp_path / "pipeline.db"):
+            asyncio.run(_drain(agent._run_async_impl(ctx)))
+
+        # The mutation node was committed with the sealed score + status.
+        gen_nodes = [n for n in db.get_all() if n.name == "Generation_1"]
+        assert len(gen_nodes) == 1
+        assert gen_nodes[0].score == 0.9
+        assert gen_nodes[0].status == "success"
+
+        # eval_result recorded with a real (positive) duration.
+        evals = ctx.session.state["_eval_results"]
+        assert len(evals) == 1
+        assert evals[0]["gen"] == 1
+        assert evals[0]["score"] == 0.9
+        assert evals[0]["status"] == "success"
+        assert evals[0]["duration_s"] > 0
+
+        # It serializes as an eval_result event carrying the duration.
+        from ai_research_engineer.core.events import create_event, event_to_dict
+
+        payload = event_to_dict(create_event("eval_result", **evals[0]))
+        assert payload["type"] == "eval_result"
+        assert payload["score"] == 0.9
+        assert payload["duration_s"] > 0

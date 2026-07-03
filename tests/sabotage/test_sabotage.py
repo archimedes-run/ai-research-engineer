@@ -3,12 +3,10 @@
 Six adversarial scenarios, all driven by in-process fakes — no real LLM calls
 and no network. Each is pinned to the Stage 0 feature that makes it pass.
 
-Scenarios (a) and (b) exercise implemented features (S0-1 loop outcomes and
-S0-2 honest stages) and drive the real seams. The remaining scenarios pin
-features that are still pending, so they carry
-``@pytest.mark.xfail(strict=True, ...)``:
-  * the typed events from S0-9 (``core.events`` does not yet know these types),
-  * the ``score=None`` / ``status`` Node contract from S0-4,
+Scenarios (a)–(d) exercise implemented features and drive the real seams:
+(a)/(b) S0-1 loop outcomes + S0-2 honest stages, (c)/(d) the S0-4 sealed
+evolve evaluator. The remaining scenarios pin features that are still pending,
+so they carry ``@pytest.mark.xfail(strict=True, ...)``:
   * the graphify-stripping ``load_prompt`` from S0-7,
   * the intake classifier module from S0-5.
 
@@ -18,7 +16,6 @@ records).
 """
 
 import json
-import subprocess
 import time
 from pathlib import Path
 
@@ -203,39 +200,42 @@ def test_b_novelty_rejection_halts_before_planning():
 # --------------------------------------------------------------------------- #
 # (c) Self-reported score of 999 is rejected because eval.sh wasn't run
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(strict=True, reason="Stage 0 feature pending: S0-4/S0-9")
 def test_c_stale_self_reported_score_is_rejected(tmp_path):
+    # S0-4 is implemented — drive the REAL sealed evaluator.
+    from unittest.mock import MagicMock
+
+    from ai_research_engineer.agents.adk.evolution_loop import EvolutionLoopAgent
     from ai_research_engineer.core.events import create_event, event_to_dict
     from ai_research_engineer.evolve.utils.structures import Node
 
     workflow = tmp_path / "workflow"
     workflow.mkdir()
 
-    # The coding agent writes an inflated score to results.json *before* the
-    # orchestrator would evaluate. In this scenario the orchestrator-mock never
-    # runs eval.sh, so results.json is stale relative to the eval start.
-    results = workflow / "results.json"
-    results.write_text(json.dumps({"score": 999}))
-    results_mtime = results.stat().st_mtime
+    # The coding agent wrote an inflated score to results.json BEFORE the
+    # orchestrator evaluates; eval.sh runs but does NOT (re)write it, so the 999
+    # is stale relative to the eval start and must be rejected via mtime.
+    (workflow / "results.json").write_text(json.dumps({"score": 999}))
+    write_eval_script(workflow, body="echo 'no-op eval — does not touch results.json'")
 
-    # Sealed-evaluator rule (S0-4): trust the score only if results.json was
-    # written *after* the orchestrator started its own eval.
-    eval_started_at = results_mtime + 10.0  # eval starts strictly after the stale write
-    fresh = results.stat().st_mtime > eval_started_at
-    score = json.loads(results.read_text())["score"] if fresh else None
-    status = "success" if fresh else "failed"
+    orch = EvolutionLoopAgent(
+        coding_agent=MagicMock(),
+        analyzer_agent=MagicMock(),
+        database=MagicMock(),
+        best_snapshot=MagicMock(),
+        max_generations=1,
+    )
+    score, status, duration = orch._evaluate(tmp_path)
 
-    assert score is None, "a stale self-reported score must be discarded"
+    assert score is None, "a stale self-reported score must be discarded via mtime"
     assert status == "failed"
 
-    # S0-4 (pending): Node/Database must accept score=None with a status field.
-    node = Node(name="gen-1", score=None, status="failed")
+    # Node/Database accept score=None with a status field; node committed as failed.
+    node = Node(name="gen-1", score=score, status=status)
     assert node.score is None
     assert node.status == "failed"
 
-    # S0-9 (pending): eval_result event carries the sealed verdict.
-    event = create_event("eval_result", gen=1, score=None, status="failed", duration_s=0.0)
-    payload = event_to_dict(event)
+    # eval_result event carries the sealed verdict.
+    payload = event_to_dict(create_event("eval_result", gen=1, score=score, status=status, duration_s=duration))
     assert payload["type"] == "eval_result"
     assert payload["status"] == "failed"
     assert payload.get("score") is None
@@ -244,8 +244,11 @@ def test_c_stale_self_reported_score_is_rejected(tmp_path):
 # --------------------------------------------------------------------------- #
 # (d) eval.sh sleeps past the timeout -> node status "timeout", score None
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(strict=True, reason="Stage 0 feature pending: S0-4/S0-9")
 def test_d_eval_timeout_yields_timeout_status_and_none_score(tmp_path):
+    # S0-4 is implemented — drive the REAL sealed evaluator with a short timeout.
+    from unittest.mock import MagicMock
+
+    from ai_research_engineer.agents.adk.evolution_loop import EvolutionLoopAgent
     from ai_research_engineer.core.events import create_event, event_to_dict
     from ai_research_engineer.evolve.utils.structures import Node
 
@@ -253,33 +256,28 @@ def test_d_eval_timeout_yields_timeout_status_and_none_score(tmp_path):
     workflow.mkdir()
     write_eval_script(workflow, body="sleep 5")  # deliberately exceeds the timeout
 
-    timeout_s = 0.5
+    orch = EvolutionLoopAgent(
+        coding_agent=MagicMock(),
+        analyzer_agent=MagicMock(),
+        database=MagicMock(),
+        best_snapshot=MagicMock(),
+        max_generations=1,
+        eval_timeout=0.5,
+    )
     started = time.time()
-    try:
-        subprocess.run(
-            ["bash", "eval.sh"],
-            cwd=workflow,
-            timeout=timeout_s,
-            capture_output=True,
-        )
-        timed_out = False
-    except subprocess.TimeoutExpired:
-        timed_out = True
-    duration_s = round(time.time() - started, 3)
+    score, status, duration = orch._evaluate(tmp_path)
+    elapsed = time.time() - started
 
-    assert timed_out, "eval.sh must exceed the configured timeout"
+    assert status == "timeout"
+    assert score is None
+    assert duration >= 0.5  # killed at ~the timeout limit
+    assert elapsed < 5, "must not wait for the full sleep"
 
-    score = None
-    status = "timeout" if timed_out else "success"
-
-    # S0-4 (pending): Node commits the timeout honestly.
     node = Node(name="gen-2", score=score, status=status)
     assert node.score is None
     assert node.status == "timeout"
 
-    # S0-9 (pending): eval_result event records the timeout with a duration.
-    event = create_event("eval_result", gen=2, score=None, status="timeout", duration_s=duration_s)
-    payload = event_to_dict(event)
+    payload = event_to_dict(create_event("eval_result", gen=2, score=score, status=status, duration_s=duration))
     assert payload["type"] == "eval_result"
     assert payload["status"] == "timeout"
 

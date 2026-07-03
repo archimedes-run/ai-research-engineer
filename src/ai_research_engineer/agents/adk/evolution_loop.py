@@ -6,8 +6,10 @@ sampling past code nodes, mutating them via Claude, and storing the results.
 
 import json
 import logging
+import subprocess
+import time
 from pathlib import Path
-from typing import Any, AsyncGenerator, Callable, Dict, Optional
+from typing import Any, AsyncGenerator, Callable, Dict, Optional, Tuple
 
 from google.adk.agents import BaseAgent, InvocationContext
 from google.adk.events import Event
@@ -56,6 +58,7 @@ class EvolutionLoopAgent(BaseAgent):
     _database: Any = PrivateAttr()
     _best_snapshot: Any = PrivateAttr()
     _max_generations: int = PrivateAttr()
+    _eval_timeout: float = PrivateAttr(default=600.0)
 
     def __init__(
         self,
@@ -64,6 +67,7 @@ class EvolutionLoopAgent(BaseAgent):
         database: Database,
         best_snapshot: BestSnapshotManager,
         max_generations: int = 10,
+        eval_timeout: float = 600.0,
         name: str = "evolution_loop",
         description: str = "Runs the autonomous evolutionary optimization loop.",
     ):
@@ -73,6 +77,7 @@ class EvolutionLoopAgent(BaseAgent):
         self._database = database
         self._best_snapshot = best_snapshot
         self._max_generations = max_generations
+        self._eval_timeout = eval_timeout
 
     def _read_current_score(self, working_dir: Path) -> float:
         """Helper to extract the empirical score from results.json."""
@@ -93,6 +98,55 @@ class EvolutionLoopAgent(BaseAgent):
         """Read the evaluator script from the canonical path."""
         path = self._program_path(working_dir)
         return path.read_text(encoding="utf-8") if path.exists() else ""
+
+    def _evaluate(self, working_dir: Path) -> Tuple[Optional[float], str, float]:
+        """Sealed evaluation (S0-4): the orchestrator — never the coding agent —
+        runs ``bash eval.sh`` and decides the score.
+
+        Returns ``(score, status, duration_s)``. The score from
+        ``workflow/results.json`` is trusted ONLY if the file's mtime is later
+        than the moment this eval started; on a stale/missing file, a nonzero
+        exit, or a timeout the score is ``None`` and status is "failed"/"timeout".
+        """
+        workflow_dir = working_dir / "workflow"
+        eval_script = workflow_dir / "eval.sh"
+        results_file = workflow_dir / "results.json"
+
+        if not eval_script.exists():
+            logger.error("[EvolutionLoop] eval.sh not found at %s — cannot evaluate.", eval_script)
+            return None, "failed", 0.0
+
+        started = time.time()
+        try:
+            proc = subprocess.run(
+                ["bash", "eval.sh"],
+                cwd=str(workflow_dir),
+                capture_output=True,
+                text=True,
+                timeout=self._eval_timeout,
+            )
+        except subprocess.TimeoutExpired:
+            duration = round(time.time() - started, 3)
+            logger.warning("[EvolutionLoop] eval.sh timed out after %ss.", self._eval_timeout)
+            return None, "timeout", duration
+
+        duration = round(time.time() - started, 3)
+        if proc.returncode != 0:
+            logger.warning("[EvolutionLoop] eval.sh exited %s: %s", proc.returncode, (proc.stderr or "")[:500])
+            return None, "failed", duration
+
+        # Trust results.json ONLY if it was (re)written by this eval run.
+        if results_file.exists() and results_file.stat().st_mtime > started:
+            try:
+                data = json.loads(results_file.read_text(encoding="utf-8"))
+                score = float(data.get("score", data.get("eval_score")))
+                return score, "success", duration
+            except Exception as e:
+                logger.error("[EvolutionLoop] Failed to parse results.json after eval: %s", e)
+                return None, "failed", duration
+
+        logger.warning("[EvolutionLoop] results.json missing or stale (not written by this eval) — rejecting score.")
+        return None, "failed", duration
 
     def _materialize_parent(self, parent: Node, working_dir: Path) -> None:
         """Write the parent's code to disk so Claude mutates the correct baseline."""
@@ -282,6 +336,8 @@ class EvolutionLoopAgent(BaseAgent):
                     logger.warning("[EvolutionLoop] Graphify rebuild failed on gen %d: %s", gen, _ge)
 
             # 3. Inject Mutation Prompt to Claude's State
+            # NOTE (S0-4): the coding agent must NOT run eval.sh or write the
+            # score — the orchestrator evaluates the mutation itself, sealed.
             state["implementation_task"] = (
                 f"EVOLUTIONARY OPTIMIZATION TASK - GENERATION {gen}\n\n"
                 f"The parent program has been restored to: {program_path}\n"
@@ -291,8 +347,8 @@ class EvolutionLoopAgent(BaseAgent):
                 f"Parent Analysis: {parent.analysis}\n\n"
                 f"Your task:\n"
                 f"1. Surgically edit {program_path.name} to improve performance (tune hyperparams, change optimizers, etc.).\n"
-                f"2. Run the `eval.sh` script to test your changes.\n"
-                f"3. Ensure the new score is written to `results.json`."
+                f"2. Do NOT run eval.sh and do NOT write results.json — after you finish editing, the "
+                f"orchestrator will run the sealed evaluation itself and record the official score."
             )
 
             # 5. Run Claude (Mutation)
@@ -303,15 +359,30 @@ class EvolutionLoopAgent(BaseAgent):
                 logger.error(f"[EvolutionLoop] Claude mutation failed on Gen {gen}: {e}")
                 continue
 
-            # 6. Extract Results
+            # 6. Sealed evaluation (S0-4): the orchestrator runs eval.sh itself
+            # and decides the score — the coding agent's self-report is ignored.
             new_code = self._read_current_code(working_dir)
-            new_score = self._read_current_score(working_dir)
+            new_score, eval_status, eval_duration = self._evaluate(working_dir)
+
+            # Record a structured eval_result for the streaming layer (S0-4/S0-9).
+            eval_results = state.get("_eval_results")
+            if not isinstance(eval_results, list):
+                eval_results = []
+            eval_results.append({"gen": gen, "score": new_score, "status": eval_status, "duration_s": eval_duration})
+            state["_eval_results"] = eval_results
+            logger.info(
+                "[EvolutionLoop] Gen %d sealed eval: status=%s score=%s duration=%ss",
+                gen,
+                eval_status,
+                new_score,
+                eval_duration,
+            )
 
             # 7. Run Analyzer (Stage Reflector acting as Analyzer)
             # We spoof the state so the reflector evaluates the mutation
             state["high_level_stages"] = [{"title": f"Generation {gen}", "description": "Evolutionary mutation step"}]
             state["stage_implementations"] = [
-                {"implementation_summary": f"Parent score: {parent.score}, New score: {new_score}"}
+                {"implementation_summary": f"Parent score: {parent.score}, New score: {new_score} ({eval_status})"}
             ]
 
             analyzer_feedback = ""
@@ -328,19 +399,27 @@ class EvolutionLoopAgent(BaseAgent):
                 logger.warning(f"[EvolutionLoop] Analyzer failed on Gen {gen}: {e}")
                 analyzer_feedback = f"Analysis failed: {e}"
 
-            # 8. Save new Node
+            # 8. Save new Node (committed with the sealed score/status, even when
+            # the eval failed or timed out — score=None, status in failed/timeout).
             new_node = Node(
                 name=f"Generation_{gen}",
                 parent=[parent.id] if parent.id is not None else [],
                 motivation=f"Mutated from {parent.name}",
                 code=new_code,
                 score=new_score,
-                results={"score": new_score},
+                status=eval_status,
+                results={"score": new_score, "status": eval_status},
                 analysis=analyzer_feedback,
             )
 
             node_id = self._database.add(new_node)
-            is_new_sota = self._best_snapshot.update_if_better(new_node, f"step_{gen}_gen", working_dir / "workflow")
+            # A node with no score can never be SOTA; skip the snapshot compare
+            # (best_snapshot ranks on score and would fail on None).
+            is_new_sota = (
+                False
+                if new_score is None
+                else self._best_snapshot.update_if_better(new_node, f"step_{gen}_gen", working_dir / "workflow")
+            )
 
             # --- Tree: record generation experiment + result ---
             if _tree is not None:
@@ -377,7 +456,12 @@ class EvolutionLoopAgent(BaseAgent):
 
                 self._tree_safe(_write_gen)
 
-            sota_text = "🏆 NEW STATE-OF-THE-ART!" if is_new_sota else "📉 Did not beat best."
+            if new_score is None:
+                sota_text = f"⚠️ Eval {eval_status} — no score recorded."
+            elif is_new_sota:
+                sota_text = "🏆 NEW STATE-OF-THE-ART!"
+            else:
+                sota_text = "📉 Did not beat best."
 
             yield Event(
                 author=self.name,
@@ -385,15 +469,18 @@ class EvolutionLoopAgent(BaseAgent):
                     role="model",
                     parts=[
                         types.Part(
-                            text=f"\n\n📊 **Generation {gen} Complete!**\nNew Score: {new_score} {sota_text}\nSaved to DB as Node {node_id}.\n\n"
+                            text=f"\n\n📊 **Generation {gen} Complete!**\nNew Score: {new_score} ({eval_status}) {sota_text}\nSaved to DB as Node {node_id}.\n\n"
                         )
                     ],
                 ),
                 turn_complete=True,
             )
 
-        # Evolution Complete
-        best_node = max(self._database.get_all(), key=lambda n: n.score)
+        # Evolution Complete — pick the best *scored* node (ignore failed/timeout).
+        best_node = max(
+            self._database.get_all(),
+            key=lambda n: n.score if n.score is not None else float("-inf"),
+        )
 
         # --- Tree: mark best node's experiment ---
         if _tree is not None:

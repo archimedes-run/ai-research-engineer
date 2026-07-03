@@ -83,7 +83,8 @@ class Database:
             A list of sampled nodes.
         """
         with self.lock:
-            nodes = list(self.nodes.values())
+            # Skip nodes with no score (failed/timeout eval, S0-4).
+            nodes = [node for node in self.nodes.values() if node.score is not None]
 
             if algorithm:
                 sampler = get_sampler(algorithm, **kwargs)
@@ -110,7 +111,11 @@ class Database:
             self.next_id += 1
 
             self.nodes[node.id] = node
-            self.default_sampler.on_node_added(node)
+            # Nodes with no score (failed/timeout eval, S0-4) are stored but not
+            # registered with the sampler — they must never be sampled, and the
+            # sampler bookkeeping ranks on score.
+            if node.score is not None:
+                self.default_sampler.on_node_added(node)
 
             text = node.get_context_text()
             if text:
@@ -144,10 +149,13 @@ class Database:
         if not self.nodes:
             return
 
-        worst_node_id = min(
-            self.nodes.keys(),
-            key=lambda node_id: (self.nodes[node_id].score, node_id)
-        )
+        # None-score nodes (failed/timeout) rank as worst, so they are evicted
+        # first; ties are broken by the smallest id.
+        def _worst_key(node_id):
+            score = self.nodes[node_id].score
+            return (score if score is not None else float("-inf"), node_id)
+
+        worst_node_id = min(self.nodes.keys(), key=_worst_key)
 
         self.remove(worst_node_id)
 
