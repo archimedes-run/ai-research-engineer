@@ -56,7 +56,7 @@ class IdeationTreeAgent(BaseAgent):
         kwargs.setdefault("name", "ideation_tree_agent")
         kwargs.setdefault("description", "Records the generated hypothesis in the argument tree.")
         super().__init__(**kwargs)
-        self._working_dir = working_dir
+        object.__setattr__(self, '_working_dir', working_dir)
 
     @override
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
@@ -126,7 +126,7 @@ class PlanningTreeAgent(BaseAgent):
         kwargs.setdefault("name", "planning_tree_agent")
         kwargs.setdefault("description", "Records plan stages and criteria in the argument tree.")
         super().__init__(**kwargs)
-        self._working_dir = working_dir
+        object.__setattr__(self, '_working_dir', working_dir)
 
     @override
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:

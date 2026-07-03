@@ -261,6 +261,7 @@ class ClaudeCodeAgent(Agent):
     # Define working_dir and output_key as instance variables
     _working_dir: Optional[str] = None
     _output_key: str = "implementation_summary"
+    _task_prompt: str = ""
 
     def __init__(
         self,
@@ -268,6 +269,7 @@ class ClaudeCodeAgent(Agent):
         description: Optional[str] = None,
         working_dir: Optional[str] = None,
         output_key: str = "implementation_summary",
+        task_prompt: str = "",
         after_agent_callback: Optional[Any] = None,
         **kwargs: Any,
     ):
@@ -306,6 +308,7 @@ class ClaudeCodeAgent(Agent):
         )
         self._working_dir = working_dir
         self._output_key = output_key
+        self._task_prompt = task_prompt
 
     @property
     def working_dir(self) -> Optional[str]:
@@ -408,6 +411,15 @@ class ClaudeCodeAgent(Agent):
                     completed_stages=state.get("stage_implementations", []),
                     all_stages=state.get("high_level_stages", []),
                 )
+            elif self._task_prompt:
+                # Agent-level task prompt (e.g. paper_writer_agent uses summary.md)
+                # Substitute any $variables from state
+                from string import Template  # noqa: PLC0415
+                tmpl = Template(self._task_prompt)
+                subs = {"working_dir": working_dir}
+                for k, v in state.items():
+                    subs[k] = str(v) if v is not None else ""
+                prompt = tmpl.safe_substitute(**subs)
             else:
                 # Fallback: Try multiple state keys to find the task
                 task_prompt = (

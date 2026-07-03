@@ -24,8 +24,16 @@ def load_pricing() -> Dict[str, Dict[str, float]]:
         return {}
 
 
+_PROVIDER_PREFIXES = ("google/", "anthropic/", "openai/", "vertex_ai/", "gemini/")
+
+
 def _resolve_model(model: Optional[str], table: Dict[str, Dict[str, float]]) -> Optional[Dict[str, float]]:
-    """Find the best matching entry in the pricing table for *model*."""
+    """Find the best matching entry in the pricing table for *model*.
+
+    Models arrive with provider prefixes (e.g. ``google/gemini-2.5-pro``) that
+    pricing.yaml keys without (``gemini-2.5-pro``). We try the exact name first,
+    then the name with a known provider prefix stripped.
+    """
     if not model:
         return None
     if model in table:
@@ -33,6 +41,12 @@ def _resolve_model(model: Optional[str], table: Dict[str, Dict[str, float]]) -> 
     # OpenRouter: fall back to the generic openrouter/default entry
     if model.startswith("openrouter/") and "openrouter/default" in table:
         return table["openrouter/default"]
+    # Strip a known provider prefix and retry (google/gemini-2.5-pro -> gemini-2.5-pro)
+    for prefix in _PROVIDER_PREFIXES:
+        if model.startswith(prefix):
+            stripped = model[len(prefix):]
+            if stripped in table:
+                return table[stripped]
     return None
 
 
