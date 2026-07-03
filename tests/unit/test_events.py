@@ -239,6 +239,60 @@ class TestIntakeDecisionEvent:
         assert payload["action"] == "switch"
 
 
+class TestStageStatusEvent:
+    """Test StageStatusEvent (S0-2 / S0-9)."""
+
+    def test_stage_status_round_trip(self):
+        payload = event_to_dict(create_event("stage_status", index=2, status="completed_unverified"))
+        assert payload["type"] == "stage_status"
+        assert payload["index"] == 2
+        assert payload["status"] == "completed_unverified"
+
+
+# Fields for each S0-9 typed event (used by the session-store round-trip test).
+_S0_9_EVENT_SAMPLES = [
+    ("gate_decision", {"loop": "implementation_loop", "outcome": "exhausted", "reason": "max_iterations"}),
+    ("stage_status", {"index": 3, "status": "completed_unverified"}),
+    ("eval_result", {"gen": 1, "score": 0.9, "status": "success", "duration_s": 1.5}),
+    ("progress_hash", {"hash": "deadbeef", "iteration": 4}),
+    ("intake_decision", {"detected_intent": "replicate", "selected_mode": "replication", "action": "switch"}),
+]
+
+
+class TestS0_9EventSessionStoreRoundTrip:
+    """S0-9: each new typed event serializes and round-trips through the session
+    store (RunStore) unchanged."""
+
+    def test_all_new_event_types_round_trip(self, tmp_path):
+        from datetime import datetime
+
+        from ai_research_engineer.server.run_store import RunStore
+
+        RunStore.init(db_path=tmp_path / "events.db")
+        RunStore.save_session(
+            {
+                "session_id": "sess-events",
+                "status": "running",
+                "title": "T",
+                "topic": "x",
+                "agent_type": "adk",
+                "started_at": datetime.now().isoformat(),
+            }
+        )
+
+        for etype, fields in _S0_9_EVENT_SAMPLES:
+            payload = event_to_dict(create_event(etype, **fields))
+            RunStore.append_event("sess-events", payload)
+
+        stored_by_type = {e["type"]: e for e in RunStore.get_events("sess-events")}
+
+        for etype, fields in _S0_9_EVENT_SAMPLES:
+            assert etype in stored_by_type, f"{etype} did not survive the session store"
+            stored = stored_by_type[etype]
+            for key, value in fields.items():
+                assert stored.get(key) == value, f"{etype}.{key} changed: {stored.get(key)!r} != {value!r}"
+
+
 class TestEventToDict:
     """Test event_to_dict function."""
 

@@ -4,6 +4,7 @@ Web operation tools for ADK agents.
 Provides HTTP GET functionality with timeout and user-agent configuration.
 """
 
+import contextlib
 import ipaddress
 import socket
 from typing import Optional
@@ -63,6 +64,70 @@ def _check_url_for_ssrf(url: str) -> Optional[str]:
             "loopback, link-local, or cloud-metadata address."
         )
     return None
+
+
+def _resolve_and_validate(host: str):
+    """Resolve *host* ONCE and validate its addresses (S0-8, DNS TOCTOU fix).
+
+    Returns ``(addrinfo_results, error)``:
+      * ``(results, None)`` — safe; ``results`` are the validated addresses,
+      * ``(None, error_str)`` — a resolved address is private/metadata (blocked),
+      * ``(None, None)`` — unresolvable; let the request fail naturally.
+
+    The returned ``results`` are pinned onto the actual connection via
+    ``_pinned_resolution`` so the address that is validated is the same address
+    that is connected to — closing the check-then-connect race.
+    """
+    try:
+        results = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        return None, None
+
+    for _family, _type, _proto, _canonname, sockaddr in results:
+        try:
+            ip = ipaddress.ip_address(sockaddr[0])
+        except ValueError:
+            continue
+        for net in _BLOCKED_NETWORKS:
+            if ip in net:
+                return None, (
+                    f"Request to '{host}' is blocked: target resolves to a private, "
+                    "loopback, link-local, or cloud-metadata address."
+                )
+    return results, None
+
+
+@contextlib.contextmanager
+def _pinned_resolution(host: str, validated_results):
+    """Force ``socket.getaddrinfo`` to return only the pre-validated addresses for
+    *host* during the request (single-resolution).
+
+    This guarantees the connection uses the exact address we validated, so a DNS
+    entry that flips to a private IP between the SSRF check and the connect
+    cannot be reached. The requested port from the caller is preserved.
+    """
+    real_getaddrinfo = socket.getaddrinfo
+
+    def _patched(a_host, a_port=None, *args, **kwargs):
+        if a_host != host:
+            return real_getaddrinfo(a_host, a_port, *args, **kwargs)
+        rebuilt = []
+        for family, socktype, proto, canon, sockaddr in validated_results:
+            ip = sockaddr[0]
+            if family == socket.AF_INET6:
+                flowinfo = sockaddr[2] if len(sockaddr) > 2 else 0
+                scope_id = sockaddr[3] if len(sockaddr) > 3 else 0
+                new_sockaddr = (ip, a_port or 0, flowinfo, scope_id)
+            else:
+                new_sockaddr = (ip, a_port or 0)
+            rebuilt.append((family, socktype, proto, canon, new_sockaddr))
+        return rebuilt
+
+    socket.getaddrinfo = _patched
+    try:
+        yield
+    finally:
+        socket.getaddrinfo = real_getaddrinfo
 
 
 def _truncate_content(content: str, max_content_length: int) -> str:
@@ -143,11 +208,6 @@ def fetch_url(
         if not url.startswith(("http://", "https://")):
             return "Error: Only HTTP and HTTPS URLs are supported"
 
-        # SSRF check on the initial URL
-        ssrf_error = _check_url_for_ssrf(url)
-        if ssrf_error:
-            return f"Error: {ssrf_error}"
-
         headers = {}
         if user_agent is not None:
             headers["User-Agent"] = user_agent
@@ -156,12 +216,24 @@ def fetch_url(
         current_url = url
         max_redirects = 10
         for _ in range(max_redirects + 1):
-            response = requests.get(
-                current_url,
-                headers=headers,
-                timeout=timeout,
-                allow_redirects=False,
-            )
+            host = urlparse(current_url).hostname
+            if not host:
+                return "Error: Invalid URL: could not determine hostname."
+
+            # Resolve the host ONCE, validate it, and pin that resolution onto
+            # the connection so the validated address is the one we connect to.
+            validated, ssrf_error = _resolve_and_validate(host)
+            if ssrf_error:
+                return f"Error: {ssrf_error}"
+
+            pin = _pinned_resolution(host, validated) if validated else contextlib.nullcontext()
+            with pin:
+                response = requests.get(
+                    current_url,
+                    headers=headers,
+                    timeout=timeout,
+                    allow_redirects=False,
+                )
 
             if response.is_redirect:
                 location = response.headers.get("Location", "")

@@ -718,6 +718,14 @@ class StageOrchestratorAgent(BaseAgent):
             stage_status = derive_stage_status(impl_outcome)
             next_stage["status"] = stage_status
             next_stage["completed"] = stage_completed_flag(stage_status)
+
+            # Record a structured stage_status for the streaming layer (S0-2/S0-9).
+            stage_statuses = state.get("_stage_statuses")
+            if not isinstance(stage_statuses, list):
+                stage_statuses = []
+            stage_statuses.append({"index": stage_idx, "status": stage_status})
+            state["_stage_statuses"] = stage_statuses
+
             if stage_status == STATUS_COMPLETED_UNVERIFIED:
                 logger.warning(
                     "[StageOrchestrator] Stage %s recorded as '%s' (implementation_loop_outcome=%r)",

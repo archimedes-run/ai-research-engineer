@@ -43,11 +43,66 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 
+# Skills repository, pinned to a specific commit so runs are reproducible and
+# the clone can be cached (S0-8). Bump SKILLS_REPO_SHA to update the skills.
+SKILLS_REPO_URL = "https://github.com/K-Dense-AI/claude-scientific-skills.git"
+SKILLS_REPO_SHA = "8b1c0e6a0c0b4f3a2d5e6f7a8b9c0d1e2f3a4b5c"  # pinned commit; update to bump skills
+
+
+def _skills_cache_dir() -> Path:
+    """Shared on-disk cache for the pinned skills checkout."""
+    return Path.home() / ".archimedes" / "cache" / "skills" / SKILLS_REPO_SHA
+
+
+def _ensure_skills_cache() -> Optional[Path]:
+    """Clone the pinned skills repo into the shared cache ONCE; reuse thereafter.
+
+    Returns the populated cache directory, or ``None`` if the clone failed and no
+    cache is available. Subsequent calls short-circuit on the completion marker so
+    the repo is cloned at most once per pinned SHA.
+    """
+    import subprocess
+
+    cache_dir = _skills_cache_dir()
+    marker = cache_dir / ".complete"
+    if marker.exists():
+        return cache_dir  # already cached — do NOT clone again
+
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        # Shallow-fetch exactly the pinned commit, then check it out.
+        subprocess.run(["git", "init"], cwd=str(cache_dir), check=True, capture_output=True, timeout=60)
+        subprocess.run(
+            ["git", "remote", "add", "origin", SKILLS_REPO_URL],
+            cwd=str(cache_dir),
+            check=True,
+            capture_output=True,
+            timeout=60,
+        )
+        subprocess.run(
+            ["git", "fetch", "--depth", "1", "origin", SKILLS_REPO_SHA],
+            cwd=str(cache_dir),
+            check=True,
+            capture_output=True,
+            timeout=120,
+        )
+        subprocess.run(
+            ["git", "checkout", "FETCH_HEAD"], cwd=str(cache_dir), check=True, capture_output=True, timeout=60
+        )
+        marker.write_text("ok")
+        logger.info("[Claude Code] Cached skills repo at pinned SHA in %s", cache_dir)
+        return cache_dir
+    except Exception as e:
+        logger.warning("[Claude Code] Failed to populate skills cache: %s", e)
+        return None
+
+
 def setup_skills_directory(working_dir: str) -> None:
     """
-    Clone claude-scientific-skills repository and copy skills to .claude/skills/.
+    Populate ``.claude/skills/`` from the pinned skills repo (S0-8).
 
-    The repository contains a single 'scientific-skills' directory with all skills.
+    The repo is cloned once into a shared cache (``~/.archimedes/cache/skills/
+    <sha>/``); every run copies from that cache instead of re-cloning.
 
     Parameters
     ----------
@@ -55,45 +110,91 @@ def setup_skills_directory(working_dir: str) -> None:
         Working directory to set up skills in
     """
     import shutil
-    import subprocess
-    import tempfile
 
     working_path = Path(working_dir)
     skills_dir = working_path / ".claude" / "skills"
     skills_dir.mkdir(parents=True, exist_ok=True)
 
-    # Clone repo to temp directory
-    with tempfile.TemporaryDirectory() as tmpdir:
-        repo_url = "https://github.com/K-Dense-AI/claude-scientific-skills.git"
-        tmp_repo = Path(tmpdir) / "claude-scientific-skills"
+    cache_dir = _ensure_skills_cache()
+    if cache_dir is None:
+        logger.warning("[Claude Code] Skills cache unavailable — skipping skills setup.")
+        return
 
-        try:
-            logger.info(f"[Claude Code] Cloning claude-scientific-skills to {tmp_repo}")
-            subprocess.run(
-                ["git", "clone", "--depth", "1", repo_url, str(tmp_repo)], check=True, capture_output=True, timeout=60
-            )
+    source_path = cache_dir / "scientific-skills"
+    if not source_path.exists():
+        logger.warning("[Claude Code] scientific-skills directory not found in cache %s", source_path)
+        return
 
-            # Copy scientific-skills directory
-            source_path = tmp_repo / "scientific-skills"
-            if source_path.exists():
-                # Copy each skill directory
-                for skill_dir in source_path.iterdir():
-                    if skill_dir.is_dir():
-                        dest_path = skills_dir / skill_dir.name
-                        if dest_path.exists():
-                            shutil.rmtree(dest_path)
-                        shutil.copytree(skill_dir, dest_path)
-            else:
-                logger.warning(f"[Claude Code] scientific-skills directory not found in {tmp_repo}")
+    for skill_dir in source_path.iterdir():
+        if skill_dir.is_dir():
+            dest_path = skills_dir / skill_dir.name
+            if dest_path.exists():
+                shutil.rmtree(dest_path)
+            shutil.copytree(skill_dir, dest_path)
+    logger.info("[Claude Code] Skills copied from cache to %s", skills_dir)
 
-            logger.info(f"[Claude Code] Skills setup complete in {skills_dir}")
 
-        except subprocess.TimeoutExpired:
-            logger.warning("[Claude Code] Git clone timed out - skills may not be available")
-        except subprocess.CalledProcessError as e:
-            logger.warning(f"[Claude Code] Failed to clone skills repo: {e.stderr.decode()}")
-        except Exception as e:
-            logger.warning(f"[Claude Code] Error setting up skills: {e}")
+def _git_push_config() -> tuple[str, bool]:
+    """Remote-push configuration (S0-8). Push happens ONLY if a remote URL is set
+    AND push is explicitly enabled. Read from env so nothing is hardcoded."""
+    remote_url = os.getenv("GIT_REMOTE_URL", "").strip()
+    push = os.getenv("GIT_PUSH", "").strip().lower() in ("1", "true", "yes")
+    return remote_url, push
+
+
+def _setup_git_repo(working_dir: str) -> None:
+    """Initialize a local git repo with a baseline commit (S0-8).
+
+    Always: ``git init`` + local identity + initial commit. Never creates a
+    hardcoded remote. A remote push happens ONLY when ``git.remote_url`` is set
+    AND ``git.push=true`` (env: GIT_REMOTE_URL / GIT_PUSH). Auth is supplied via
+    env at push time through a one-shot ``http.extraHeader`` and is NEVER written
+    into ``.git/config``.
+    """
+    import subprocess
+
+    working_path = Path(working_dir)
+    if (working_path / ".git").exists():
+        return
+
+    try:
+        subprocess.run(["git", "init"], cwd=working_dir, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "config", "user.name", "AI Research Agent"], cwd=working_dir, check=True, capture_output=True
+        )
+        subprocess.run(
+            ["git", "config", "user.email", "ai-research-engineer@localhost"],
+            cwd=working_dir,
+            check=True,
+            capture_output=True,
+        )
+        (working_path / ".gitignore").write_text(
+            ".claude/\n__pycache__/\n*.pyc\n.env\n*.pt\n*.pth\n*.safetensors\ndata/\n"
+        )
+        subprocess.run(["git", "add", ".gitignore"], cwd=working_dir, check=True, capture_output=True)
+        subprocess.run(
+            ["git", "commit", "-m", "Initial commit from Orchestrator"],
+            cwd=working_dir,
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(["git", "branch", "-M", "main"], cwd=working_dir, check=True, capture_output=True)
+        logger.info("[Claude Code] Initialized local git repository with baseline commit in %s", working_dir)
+
+        remote_url, do_push = _git_push_config()
+        if remote_url and do_push:
+            token = os.getenv("GIT_PUSH_TOKEN", "").strip()
+            push_cmd = ["git"]
+            if token:
+                # One-shot auth header for THIS command only — not persisted to .git/config.
+                push_cmd += ["-c", f"http.extraHeader=Authorization: Bearer {token}"]
+            push_cmd += ["push", remote_url, "HEAD:main"]
+            subprocess.run(push_cmd, cwd=working_dir, check=True, capture_output=True)
+            logger.info("[Claude Code] Pushed initial commit to the configured remote.")
+        else:
+            logger.info("[Claude Code] No remote push configured (GIT_REMOTE_URL/GIT_PUSH) — local commit only.")
+    except Exception as e:
+        logger.warning("[Claude Code] Local git setup failed (non-fatal): %s", e)
 
 
 def setup_working_directory(working_dir: str) -> None:
@@ -107,91 +208,9 @@ def setup_working_directory(working_dir: str) -> None:
     working_path = Path(working_dir)
     working_path.mkdir(parents=True, exist_ok=True)
 
-    # 1. NEW: Initialize git repository AND make an initial commit (REQUIRED BY CLAUDE CODE)
-    import subprocess
-    import os
-    import urllib.request
-    import json
-    
-    github_pat = os.getenv("GITHUB_PAT")
-    
-    # --- IMPORTANT: Change this to 'ris3abh' or 'archimedes-run' depending on where the PAT was generated ---
-    github_username = "archimedes-run" 
-    
-    repo_name = working_path.name
-
-    if not (working_path / ".git").exists():
-        try:
-            # Init repo
-            subprocess.run(["git", "init"], cwd=working_dir, check=True, capture_output=True)
-            
-            # CRITICAL FIX: Configure Git identity locally for this repository
-            subprocess.run(["git", "config", "user.name", "AI Research Agent"], cwd=working_dir, check=True, capture_output=True)
-            subprocess.run(["git", "config", "user.email", "ai-research-engineer@archimedes.run"], cwd=working_dir, check=True, capture_output=True)
-            
-            # Create a minimal .gitignore
-            gitignore_path = working_path / ".gitignore"
-            gitignore_path.write_text(
-                ".claude/\n"
-                "__pycache__/\n"
-                "*.pyc\n"
-                ".env\n"
-                "*.pt\n"
-                "*.pth\n"
-                "*.safetensors\n"
-                "data/\n"
-            )
-            
-            # Add and commit
-            subprocess.run(["git", "add", ".gitignore"], cwd=working_dir, check=True, capture_output=True)
-            subprocess.run(["git", "commit", "-m", "Initial commit from Orchestrator"], cwd=working_dir, check=True, capture_output=True)
-            logger.info(f"[Claude Code] Initialized git repository with baseline commit in {working_dir}")
-
-            # Create Remote and Push
-            if github_pat:
-                logger.info(f"[Claude Code] Attempting to create GitHub repo: {repo_name}...")
-                
-                # --- NEW: Define your Organization ---
-                github_username = "ris3abh"     # Your personal login
-                github_org = "archimedes-run" 
-                
-                # --- NEW: Notice the endpoint changed from /user/repos to /orgs/{github_org}/repos ---
-                req = urllib.request.Request(
-                    f"https://api.github.com/orgs/{github_org}/repos",
-                    data=json.dumps({
-                        "name": repo_name,
-                        "private": True,
-                        "description": "Autonomous AI Research Replication created by AI Research Engineer"
-                    }).encode("utf-8"),
-                    headers={
-                        "Authorization": f"Bearer {github_pat}",
-                        "Accept": "application/vnd.github.v3+json",
-                        "Content-Type": "application/json"
-                    },
-                    method="POST"
-                )
-                
-                try:
-                    urllib.request.urlopen(req)
-                    logger.info(f"[Claude Code] Successfully created remote repo: {github_org}/{repo_name}")
-                except urllib.error.HTTPError as e:
-                    # 422 usually means the repo already exists, which is fine!
-                    logger.info(f"[Claude Code] Repo creation returned HTTP {e.code} (It likely already exists).")
-
-                # --- NEW: Link and Push to the Organization's URL ---
-                # We can just use the PAT directly for auth without needing the username here
-                remote_url = f"https://{github_username}:{github_pat}@github.com/{github_org}/{repo_name}.git"
-                
-                subprocess.run(["git", "remote", "add", "origin", remote_url], cwd=working_dir, check=True, capture_output=True)
-                subprocess.run(["git", "branch", "-M", "main"], cwd=working_dir, check=True, capture_output=True)
-                subprocess.run(["git", "push", "-u", "origin", "main"], cwd=working_dir, check=True, capture_output=True)
-                
-                logger.info(f"[Claude Code] Successfully pushed initial skeleton to GitHub Organization!")
-            else:
-                logger.warning("[Claude Code] GITHUB_PAT not found. Skipping remote push.")
-
-        except Exception as e:
-            logger.warning(f"[Claude Code] Failed to initialize git with commit: {e}")
+    # Initialize a local git repository with a baseline commit (S0-8). No remote
+    # is created and no push happens unless explicitly configured.
+    _setup_git_repo(working_dir)
 
     # We added 'knowledge_base' and 'literature' to the standard subdirectories
     subdirs = ["user_data", "workflow", "results", "literature", "knowledge_base"]

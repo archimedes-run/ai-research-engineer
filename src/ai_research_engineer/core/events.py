@@ -120,6 +120,18 @@ class GateDecisionEvent(BaseEvent):
 
 
 @dataclass
+class StageStatusEvent(BaseEvent):
+    """Honest per-stage status from the orchestrator (S0-2 / S0-9).
+
+    ``status`` is "completed" (implementation approved) or "completed_unverified".
+    """
+
+    type: Literal["stage_status"] = "stage_status"
+    index: int = 0
+    status: str = ""
+
+
+@dataclass
 class ProgressHashEvent(BaseEvent):
     """Per-iteration no-progress hash from the stage orchestrator (S0-3 / S0-9).
 
@@ -200,6 +212,7 @@ StreamingEvent = (
     | VerificationEvent
     | HITLRequestEvent
     | GateDecisionEvent
+    | StageStatusEvent
     | ProgressHashEvent
     | EvalResultEvent
     | IntakeDecisionEvent
@@ -219,6 +232,7 @@ EVENT_TYPE_MAP = {
     "verification": VerificationEvent,
     "hitl_request": HITLRequestEvent,
     "gate_decision": GateDecisionEvent,
+    "stage_status": StageStatusEvent,
     "progress_hash": ProgressHashEvent,
     "eval_result": EvalResultEvent,
     "intake_decision": IntakeDecisionEvent,

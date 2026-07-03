@@ -431,8 +431,9 @@ class TestResearchOps:
         # Query is passed as a keyword arg (first positional is the output path).
         assert mock_fp_search.call_args.kwargs.get("query")
 
+    @patch("ai_research_engineer.tools.research_ops.enforce_rate_limit")
     @patch("ai_research_engineer.tools.research_ops.sch")
-    def test_build_citation_graph(self, mock_sch, temp_workspace):
+    def test_build_citation_graph(self, mock_sch, mock_rate_limit, temp_workspace):
         # Target paper: paperId and years must be real values (they land in the
         # JSON graph), otherwise json.dumps would choke on unset MagicMocks.
         root = MagicMock()

@@ -5,33 +5,19 @@ Implements deep paper discovery, author analysis, recommendations, and session t
 
 import json
 import logging
-import os  # FIXED: Added missing import
-import time  # FIXED: Added missing import
 from pathlib import Path
 from typing import Optional
 
-from semanticscholar import SemanticScholar
+from ai_research_engineer.tools.semantic_scholar import client as sch, enforce_rate_limit
 
 
 logger = logging.getLogger(__name__)
 
-# Initialize Semantic Scholar client
-api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
-sch = SemanticScholar(api_key=api_key)
-
-_last_semanticscholar_call = 0.0
-
-def _enforce_1_rps_limit():
-    """Ensures at least 1.0 second passes between API calls."""
-    global _last_semanticscholar_call
-    current_time = time.time()
-    time_since_last = current_time - _last_semanticscholar_call
-    
-    if time_since_last < 1.0:
-        # Sleep for the remainder of the second to strictly respect the 1 RPS limit
-        time.sleep(1.0 - time_since_last)
-        
-    _last_semanticscholar_call = time.time()
+# Unified Semantic Scholar access (S0-8): one shared client + one thread-safe
+# limiter for BOTH this module and research_ops. `sch` and `_enforce_1_rps_limit`
+# are kept under their historical names for the existing call sites and for tests
+# that patch them.
+_enforce_1_rps_limit = enforce_rate_limit
 
 # --- Helper for Session Tracking ---
 def _track_paper(working_dir: str, paper_data: dict, source_tool: str):
