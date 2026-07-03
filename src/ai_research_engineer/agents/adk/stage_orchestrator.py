@@ -772,27 +772,46 @@ class StageOrchestratorAgent(BaseAgent):
                 logger.error("[StageOrchestrator] %s Terminating orchestration.", reason)
                 self._record_gate_decision(state, "no_progress_terminated", reason)
                 if self._hitl_enabled:
-                    # Supervised: pause for a human instead of a hard terminate.
+                    # Supervised: pause for a human via the same state mechanism
+                    # HITLSequentialAgent uses (api.py reads state["_hitl_paused"]).
+                    # Do NOT emit the autonomous partial-results terminal event.
                     state["_hitl_paused"] = "gate_no_progress"
                     state["_hitl_question"] = (
                         "The stage orchestrator made no progress for three consecutive "
                         "iterations. Review the partial results and advise, or approve stopping."
                     )
-                yield Event(
-                    author=self.name,
-                    content=types.Content(
-                        role="model",
-                        parts=[
-                            types.Part(
-                                text=(
-                                    f"\n\n🛑 **No-progress termination** — {reason} "
-                                    "Proceeding to summary with partial results.\n\n"
+                    yield Event(
+                        author=self.name,
+                        content=types.Content(
+                            role="model",
+                            parts=[
+                                types.Part(
+                                    text=(
+                                        "\n\n⏸️ **No-progress pause** — three consecutive iterations "
+                                        "without progress. Pausing for human review.\n\n"
+                                    )
                                 )
-                            )
-                        ],
-                    ),
-                    turn_complete=True,
-                )
+                            ],
+                        ),
+                        turn_complete=True,
+                    )
+                else:
+                    # Autonomous: terminate with a partial-results terminal event.
+                    yield Event(
+                        author=self.name,
+                        content=types.Content(
+                            role="model",
+                            parts=[
+                                types.Part(
+                                    text=(
+                                        f"\n\n🛑 **No-progress termination** — {reason} "
+                                        "Proceeding to summary with partial results.\n\n"
+                                    )
+                                )
+                            ],
+                        ),
+                        turn_complete=True,
+                    )
                 if _tree is not None:
                     self._tree_safe(_tree.close)
                 return

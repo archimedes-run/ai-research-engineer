@@ -568,6 +568,54 @@ class TestNoProgressGuard:
             "no_progress_terminated",  # iter 5
         ]
 
+    def test_no_progress_pauses_when_hitl(self, tmp_path):
+        """With hitl_enabled=True, the 3rd identical hash must PAUSE (set the same
+        state key HITLSequentialAgent uses) and must NOT emit the autonomous
+        partial-results terminal event."""
+        from ai_research_engineer.agents.adk.stage_orchestrator import StageOrchestratorAgent
+
+        (tmp_path / "workflow").mkdir()
+        (tmp_path / "results").mkdir()
+
+        def reopen(state):
+            for s in state.get("high_level_stages", []):
+                s["completed"] = False
+                s["status"] = "pending"
+
+        orch = StageOrchestratorAgent(
+            implementation_loop=_FakeSubAgent("impl"),
+            criteria_checker=_FakeSubAgent("checker"),
+            stage_reflector=_FakeSubAgent("reflector", state_mutation=reopen),
+            working_dir=str(tmp_path),
+            hitl_enabled=True,
+        )
+
+        state = {
+            "high_level_stages": [{"index": 0, "title": "S0", "description": "d", "completed": False}],
+            "high_level_success_criteria": [{"index": 0, "criteria": "acc>0.9", "met": False}],
+            "stage_implementations": [],
+        }
+        ctx = _make_ctx(state, session_id="orch-hitl-no-progress")
+
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", tmp_path / "pipeline.db"):
+            events = asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        # Stopped on the 3rd identical hash.
+        assert [h["iteration"] for h in state["_progress_hashes"]] == [1, 2, 3]
+        outcomes = [g["outcome"] for g in state["_gate_decisions"] if g["loop"] == "stage_orchestrator"]
+        assert outcomes[-1] == "no_progress_terminated"
+
+        # Paused via the exact mechanism HITLSequentialAgent / api.py rely on.
+        assert state["_hitl_paused"] == "gate_no_progress"
+        assert state.get("_hitl_question")
+
+        # Must NOT emit the autonomous partial-results terminal event.
+        texts = [e.content.parts[0].text for e in events if e.content and e.content.parts]
+        assert not any("No-progress termination" in t for t in texts)
+        assert not any("partial results" in t.lower() for t in texts)
+        # A pause event is emitted instead.
+        assert any("No-progress pause" in t for t in texts)
+
 
 # ---------------------------------------------------------------------------
 # Failure isolation: tree errors must not affect orchestrator output
