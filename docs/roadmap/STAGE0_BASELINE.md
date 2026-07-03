@@ -19,25 +19,25 @@ failing (and documented below) rather than falsely guarded.
 Assertions are unchanged; only execution is gated. `test_compile_missing_file`
 is not guarded — it needs no compiler.
 
-## Not environment-gated — deliberately NOT guarded (pre-existing test defects)
+## Not environment-gated — repaired test defects (NOT guarded)
 
-These fail **regardless of the environment** (the "dependency" is already
-present, or there is no external dependency at all), so a `skipif` would be
-both ineffective and dishonest. They need test fixes, tracked as follow-ups —
-not environment guards.
+These failed **regardless of the environment** (the "dependency" was already
+present, or there was no external dependency at all), so a `skipif` would have
+been both ineffective and dishonest. Instead of guarding them, the underlying
+test defects were fixed (Tier 1: stale mocks; Tier 2: async test-client
+lifecycle). The table records the original root cause and the fix.
 
-| Test | Observed failure | Real root cause (not environment) |
-|------|------------------|-----------------------------------|
-| `test_tools.py::TestResearchOps::test_omni_search_papers` | ERROR at setup: `fixture 'mock_search_paper' not found` | Test references a fixture that no longer exists. A collection-time error, unrelated to network. |
-| `test_tools.py::TestResearchOps::test_build_citation_graph` | `Object of type MagicMock is not JSON serializable` | `build_citation_graph` also calls `sch.get_papers(...)` (plural) for neighbour citations; the test only stubs `sch.get_paper` (singular), so the un-stubbed call returns a MagicMock that is then JSON-dumped. Semantic Scholar is mocked, so network presence is irrelevant. |
-| `test_tools.py::TestCodeGraphOps::test_build_knowledge_graph_success` | `Could not build the code graph …` | Stale mock: the test patches `code_graph_ops.subprocess.run`, but `build_knowledge_graph` was refactored to build via `core.graphify.ensure_graph` (graphify Python API), so the mock is never hit. graphify **is** installed (`graphifyy` is a hard dependency), so `graphify_available()` is True — a graphify guard would not skip it. |
-| `test_tools.py::TestCodeGraphOps::test_build_knowledge_graph_failure` | `assert "Error building graph" in result` fails | Same stale-mock cause as above. |
-| `test_tools.py::TestCodeGraphOps::test_query_code_structure_path` | Returns `No code graph yet — run build_knowledge_graph first` | `query_code_structure` early-returns when `graphify-out/graph.json` is absent; the test never builds one, so the patched subprocess is never reached. A setup gap, not a missing dependency. |
-| `tests/integration/test_run_e2e_mock.py` (9 tests) | `TimeoutError: Session … never left 'running' within 10.0s` | Async background-task scheduling under Starlette `TestClient`. `AIEngineer(...)` construction is instant and `run_async` is monkeypatched to a canned stream, and outbound network is reachable — yet the background `_run_agent` task does not progress within the poll window. This is test-infra/timing flakiness (one test in the module passes), not a missing external dependency; a network guard would not skip it (network is up). |
+| Test | Original failure | Root cause (not environment) → Fix |
+|------|------------------|------------------------------------|
+| `test_tools.py::TestResearchOps::test_omni_search_papers` | ERROR at setup: `fixture 'mock_search_paper' not found` | Referenced a fixture that no longer exists. **Fixed:** rewrote to mock the real findpapers call sites (`findpapers.search` + `findpapers.utils.persistence_util.load`). |
+| `test_tools.py::TestResearchOps::test_build_citation_graph` | `Object of type MagicMock is not JSON serializable` | `build_citation_graph` fetches neighbour citations via `sch.get_papers(...)` (plural), and unset MagicMock `paperId`/`year` attrs were JSON-dumped. **Fixed:** set real `paperId`/`year` on the mocks and stubbed `sch.get_papers`; assertions updated to the current JSON output (incl. the cross-connection edge). |
+| `test_tools.py::TestCodeGraphOps::test_build_knowledge_graph_success` / `_failure` | `Could not build the code graph …` | Stale mock: patched `code_graph_ops.subprocess.run`, but `build_knowledge_graph` was refactored to build via `core.graphify.ensure_graph`. **Fixed:** repointed mocks at `core.graphify.{graphify_available,ensure_graph}`; added a graphify-absent test asserting the fail-soft message. |
+| `test_tools.py::TestCodeGraphOps::test_query_code_structure_path` | Returns `No code graph yet …` | `query_code_structure` early-returns unless `graphify-out/graph.json` exists. **Fixed:** create the graph file so the `python -m graphify` subprocess (correctly mocked) is actually invoked. |
+| `tests/integration/test_run_e2e_mock.py` (9 tests) | `TimeoutError: Session … never left 'running' within 10.0s` | **Root cause (diagnosed Tier 2):** the fixtures used `TestClient` **without** a context manager, so its anyio portal / event loop was torn down after each request and the background `asyncio.create_task(_run_agent(...))` was **cancelled** mid-flight (the task showed `cancelled`, no `update_session` ever ran → status stuck "running"). Not network, not a missing dependency. **Fixed:** enter `TestClient` as a context manager (`with TestClient(app) as client: yield client`) so the loop stays alive and the background task completes. Small, safe test-only change — no server machinery restructured. |
 
 ### Verification snapshot (this environment)
 
-- `pytest tests/unit/test_tools.py` → `4 failed, 33 passed, 2 skipped, 1 error`
-  (was `6 failed, 33 passed, 1 error`; the 2 pdflatex tests now skip).
-- The remaining failures above are identical on baseline `HEAD` and are not
-  introduced by any Stage 0 change.
+- `pytest tests/unit/test_tools.py` → `39 passed, 2 skipped` (the 2 pdflatex
+  tests skip; the 4 repaired tests + 1 new graphify-absent test pass).
+- `pytest tests/integration/test_run_e2e_mock.py` → `10 passed` (was 9 failed /
+  1 passed), and fast (~7s) instead of timing out.
