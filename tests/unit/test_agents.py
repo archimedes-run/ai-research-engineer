@@ -508,6 +508,66 @@ class TestNoProgressGuard:
         assert any("No-progress termination" in t for t in texts)
         assert any("partial results" in t.lower() for t in texts)
 
+    def test_reflector_action_resets_counter(self, tmp_path):
+        """A forced reflection that actually modifies the plan resets the counter,
+        so the run does NOT terminate next iteration — only if it gets stuck again."""
+        from ai_research_engineer.agents.adk.stage_orchestrator import StageOrchestratorAgent
+
+        (tmp_path / "workflow").mkdir()
+        (tmp_path / "results").mkdir()
+
+        acted = {"done": False}
+
+        def reflector(state):
+            # Always re-open the stage (stuck), BUT the FIRST time it is run under
+            # a forcing instruction, actually act: modify a stage description and
+            # report a non-empty stage_modifications. Subsequent forced runs report
+            # nothing, so the run eventually terminates.
+            for s in state.get("high_level_stages", []):
+                s["completed"] = False
+                s["status"] = "pending"
+            forced = bool(state.get("stage_reflector_forced_instruction"))
+            if forced and not acted["done"]:
+                state["high_level_stages"][0]["description"] += " [revised]"
+                state["stage_reflector_output"] = {"stage_modifications": [{"index": 0}], "new_stages": []}
+                acted["done"] = True
+            else:
+                state["stage_reflector_output"] = {"stage_modifications": [], "new_stages": []}
+
+        orch = StageOrchestratorAgent(
+            implementation_loop=_FakeSubAgent("impl"),
+            criteria_checker=_FakeSubAgent("checker"),
+            stage_reflector=_FakeSubAgent("reflector", state_mutation=reflector),
+            working_dir=str(tmp_path),
+        )
+
+        state = {
+            "high_level_stages": [{"index": 0, "title": "S0", "description": "d", "completed": False}],
+            "high_level_success_criteria": [{"index": 0, "criteria": "acc>0.9", "met": False}],
+            "stage_implementations": [],
+        }
+        ctx = _make_ctx(state, session_id="orch-reset")
+
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", tmp_path / "pipeline.db"):
+            asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        iters = [h["iteration"] for h in state["_progress_hashes"]]
+        outcomes = [g["outcome"] for g in state["_gate_decisions"] if g["loop"] == "stage_orchestrator"]
+
+        # The reflector acted (modified the description).
+        assert acted["done"] is True
+        assert "[revised]" in state["high_level_stages"][0]["description"]
+
+        # Force fires at iter 2 (acts -> reset), so the run does NOT terminate at
+        # iter 3. It gets stuck again, forces at iter 4 (no action), and only then
+        # terminates at iter 5.
+        assert iters == [1, 2, 3, 4, 5]
+        assert outcomes == [
+            "no_progress_forced_reflection",  # iter 2 — acted, counter reset
+            "no_progress_forced_reflection",  # iter 4 — no action
+            "no_progress_terminated",  # iter 5
+        ]
+
 
 # ---------------------------------------------------------------------------
 # Failure isolation: tree errors must not affect orchestrator output

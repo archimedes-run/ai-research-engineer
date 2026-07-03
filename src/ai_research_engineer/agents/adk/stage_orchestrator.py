@@ -161,15 +161,21 @@ class StageOrchestratorAgent(BaseAgent):
             return None
 
     def _compute_progress_hash(self, criteria: List[Dict], stages: List[Dict]) -> str:
-        """sha256 over the criteria met-bitmap, stage status vector, and the
+        """sha256 over the criteria met-bitmap, stage status vector, plan space
+        (stage count + titles/descriptions of non-completed stages), and the
         (path, mtime, size) signature of files under workflow/ and results/ (S0-3).
         """
+        non_completed = [s for s in stages if not s.get("completed", False)]
         parts: List[str] = [
             "criteria:" + "".join("1" if c.get("met", False) else "0" for c in criteria),
             "stages:"
             + ",".join(
                 str(s.get("status") or ("completed" if s.get("completed", False) else "pending")) for s in stages
             ),
+            # Plan space: a change to the plan (count or the wording of any
+            # not-yet-done stage) counts as progress.
+            "count:" + str(len(stages)),
+            "plan:" + "|".join(f"{s.get('title', '')}::{s.get('description', '')}" for s in non_completed),
         ]
 
         file_sig: List[str] = []
@@ -821,6 +827,19 @@ class StageOrchestratorAgent(BaseAgent):
                 )
                 async for event in self.stage_reflector.run_async(ctx):
                     yield event
+
+                # If the forced reflection actually acted (proposed a stage
+                # modification or a new stage), the plan changed — reset the
+                # counter so the revised plan gets a full cycle before we judge
+                # it stuck again.
+                reflector_output = state.get("stage_reflector_output") or {}
+                if isinstance(reflector_output, dict) and (
+                    reflector_output.get("stage_modifications") or reflector_output.get("new_stages")
+                ):
+                    logger.info(
+                        "[StageOrchestrator] Forced reflection modified the plan; resetting no-progress counter."
+                    )
+                    identical_run = 0
 
         # Safety exit if max iterations reached
         logger.error(f"[StageOrchestrator] Reached maximum iterations ({max_iterations}). Exiting orchestration.")
