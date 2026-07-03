@@ -260,18 +260,78 @@ class TestSealedEvaluation:
         assert gen_nodes[0].score == 0.9
         assert gen_nodes[0].status == "success"
 
-        # eval_result recorded with a real (positive) duration.
+        # eval_result recorded per generation (gen 0 sealed baseline + gen 1);
+        # the gen-1 mutation carries a real (positive) duration.
         evals = ctx.session.state["_eval_results"]
-        assert len(evals) == 1
-        assert evals[0]["gen"] == 1
-        assert evals[0]["score"] == 0.9
-        assert evals[0]["status"] == "success"
-        assert evals[0]["duration_s"] > 0
+        gen1_evals = [e for e in evals if e["gen"] == 1]
+        assert len(gen1_evals) == 1
+        gen1 = gen1_evals[0]
+        assert gen1["score"] == 0.9
+        assert gen1["status"] == "success"
+        assert gen1["duration_s"] > 0
 
         # It serializes as an eval_result event carrying the duration.
         from ai_research_engineer.core.events import create_event, event_to_dict
 
-        payload = event_to_dict(create_event("eval_result", **evals[0]))
+        payload = event_to_dict(create_event("eval_result", **gen1))
         assert payload["type"] == "eval_result"
         assert payload["score"] == 0.9
         assert payload["duration_s"] > 0
+
+
+class TestSealedBootstrap:
+    """Generation 0 must be scored by the orchestrator's own sealed _evaluate(),
+    never by a self-reported results.json on disk (S0-4)."""
+
+    def _run_bootstrap_only(self, tmp_path, eval_body: str):
+        """Run the evolve loop with 0 mutation generations (bootstrap only)."""
+        workflow = tmp_path / "workflow"
+        workflow.mkdir()
+        (workflow / PROGRAM_FILENAME).write_text("# baseline program\n")
+        # A stale, inflated, self-reported score already on disk.
+        (workflow / "results.json").write_text('{"score": 0.99}')
+        eval_sh = workflow / "eval.sh"
+        eval_sh.write_text(f"#!/usr/bin/env bash\n{eval_body}\n")
+        eval_sh.chmod(0o755)
+
+        db = _FakeDatabase([])
+        agent = EvolutionLoopAgent(
+            coding_agent=_FakeAnalyzerAgent(),
+            analyzer_agent=_FakeAnalyzerAgent(),
+            database=db,
+            best_snapshot=_FakeBestSnapshot(),
+            max_generations=0,  # bootstrap only — no mutation generations
+        )
+        ctx = _FakeCtx()
+        ctx.session.id = "sealed-bootstrap"
+        ctx.session.state["working_dir"] = str(tmp_path)
+
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", tmp_path / "pipeline.db"):
+            events = asyncio.run(_drain(agent._run_async_impl(ctx)))
+        return db, ctx.session.state, events
+
+    def test_bootstrap_score_comes_from_sealed_eval_not_disk(self, tmp_path):
+        # eval.sh actually produces 0.42; disk results.json says 0.99.
+        db, state, _ = self._run_bootstrap_only(tmp_path, eval_body="echo '{\"score\": 0.42}' > results.json")
+
+        node0 = [n for n in db.get_all() if n.name == "Generation_0_Baseline"]
+        assert len(node0) == 1
+        assert node0[0].score == 0.42, "Node 0 must take the sealed eval score, not the disk 0.99"
+        assert node0[0].status == "success"
+
+        # gen-0 eval_result recorded with the sealed score.
+        assert any(e["gen"] == 0 and e["score"] == 0.42 and e["status"] == "success" for e in state["_eval_results"])
+
+    def test_bootstrap_eval_failure_is_loud_and_unscored(self, tmp_path):
+        # eval.sh runs but does NOT (re)write results.json -> the 0.99 is stale.
+        db, state, events = self._run_bootstrap_only(tmp_path, eval_body="true")
+
+        node0 = [n for n in db.get_all() if n.name == "Generation_0_Baseline"][0]
+        assert node0.score is None, "a failed baseline must NOT inherit the disk score"
+        assert node0.status == "failed"
+
+        assert any(e["gen"] == 0 and e["status"] == "failed" for e in state["_eval_results"])
+
+        # The failure is surfaced loudly, not silent.
+        texts = [e.content.parts[0].text for e in events if e.content and e.content.parts]
+        assert any("Baseline evaluation failed" in t for t in texts)

@@ -79,17 +79,6 @@ class EvolutionLoopAgent(BaseAgent):
         self._max_generations = max_generations
         self._eval_timeout = eval_timeout
 
-    def _read_current_score(self, working_dir: Path) -> float:
-        """Helper to extract the empirical score from results.json."""
-        results_file = working_dir / "workflow" / "results.json"
-        if results_file.exists():
-            try:
-                data = json.loads(results_file.read_text(encoding="utf-8"))
-                return float(data.get("score", data.get("eval_score", 0.0)))
-            except Exception as e:
-                logger.error(f"[EvolutionLoop] Failed to parse results.json: {e}")
-        return 0.0
-
     def _program_path(self, working_dir: Path) -> Path:
         """Return the canonical path of the evaluator script."""
         return working_dir / "workflow" / PROGRAM_FILENAME
@@ -242,22 +231,82 @@ class EvolutionLoopAgent(BaseAgent):
 
             _tree_root_id = self._tree_safe(_seed_root)
 
-        # BOOTSTRAP: If DB is empty, ingest the baseline
+        # BOOTSTRAP: If DB is empty, ingest the baseline — scored by the SAME
+        # sealed evaluator as every mutation (S0-4). Node 0 never inherits a
+        # self-reported disk score; a baseline whose eval fails/times out is
+        # committed as failed and surfaced loudly.
         if len(self._database) == 0:
-            logger.info("[EvolutionLoop] DB empty. Bootstrapping Node 0 from baseline.")
+            logger.info("[EvolutionLoop] DB empty. Bootstrapping Node 0 via sealed evaluation.")
             baseline_code = self._read_current_code(working_dir)
-            baseline_score = self._read_current_score(working_dir)
+            baseline_score, baseline_status, baseline_duration = self._evaluate(working_dir)
+
+            eval_results = state.get("_eval_results")
+            if not isinstance(eval_results, list):
+                eval_results = []
+            eval_results.append(
+                {"gen": 0, "score": baseline_score, "status": baseline_status, "duration_s": baseline_duration}
+            )
+            state["_eval_results"] = eval_results
+            logger.info(
+                "[EvolutionLoop] Baseline sealed eval: status=%s score=%s duration=%ss",
+                baseline_status,
+                baseline_score,
+                baseline_duration,
+            )
 
             node0 = Node(
                 name="Generation_0_Baseline",
                 motivation="Initial baseline seed program.",
                 code=baseline_code,
                 score=baseline_score,
-                results={"score": baseline_score},
+                status=baseline_status,
+                results={"score": baseline_score, "status": baseline_status},
                 analysis="Baseline initialized.",
             )
             self._database.add(node0)
-            self._best_snapshot.update_if_better(node0, "step_0_baseline", working_dir / "workflow")
+            if baseline_score is not None:
+                self._best_snapshot.update_if_better(node0, "step_0_baseline", working_dir / "workflow")
+
+            if baseline_status != "success":
+                logger.error(
+                    "[EvolutionLoop] Baseline eval %s — Node 0 has no score; evolution cannot sample a parent.",
+                    baseline_status,
+                )
+                yield Event(
+                    author=self.name,
+                    content=types.Content(
+                        role="model",
+                        parts=[
+                            types.Part(
+                                text=(
+                                    f"\n\n❌ **Baseline evaluation {baseline_status}** — the seed program's "
+                                    f"eval.sh did not produce a fresh score, so Generation 0 is recorded with "
+                                    f"status={baseline_status} and no score. Evolution cannot proceed without a "
+                                    f"scored baseline.\n\n"
+                                )
+                            )
+                        ],
+                    ),
+                    turn_complete=True,
+                )
+            else:
+                yield Event(
+                    author=self.name,
+                    content=types.Content(
+                        role="model",
+                        parts=[
+                            types.Part(
+                                text=(
+                                    f"\n\n✅ **Baseline scored** — Generation 0 evaluated to {baseline_score} "
+                                    f"via the sealed evaluator ({baseline_duration}s).\n\n"
+                                )
+                            )
+                        ],
+                    ),
+                    turn_complete=False,
+                )
+
+            baseline_tree_status = "completed" if baseline_status == "success" else "failed"
 
             # --- Tree: record baseline experiment + result ---
             if _tree is not None:
@@ -274,19 +323,19 @@ class EvolutionLoopAgent(BaseAgent):
                     _tree_root_id = _tree.add_root(label=topic[:200], content=topic)
                     return _tree_root_id
 
-                def _write_baseline(n0=node0) -> None:
+                def _write_baseline(n0=node0, _status=baseline_tree_status) -> None:
                     root_id = _get_or_create_root()
                     exp_id = _tree.add_experiment(
                         label=n0.name,
                         content=n0.motivation,
                         parent_id=root_id,
-                        status="completed",
-                        metadata={"gen": 0, "db_node_id": n0.id, "sota": True},
+                        status=_status,
+                        metadata={"gen": 0, "db_node_id": n0.id, "sota": n0.score is not None},
                     )
                     _tree.add_result(
                         label=f"Score: {n0.score}",
                         parent_id=exp_id,
-                        status="completed",
+                        status=_status,
                         metadata={"metric_name": "score", "value": n0.score, "gen": 0},
                     )
                     db_to_tree[n0.id] = exp_id
