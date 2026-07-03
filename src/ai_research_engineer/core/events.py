@@ -99,6 +99,24 @@ class CompletedEvent(BaseEvent):
     total_events: int = 0
     files_created: List[str] = field(default_factory=list)
     files_count: int = 0
+    # Set to "DRAFT_UNVERIFIED" when the paper_writing_loop exhausted without
+    # an approving review (S0-1). None (the default) means fully verified.
+    manuscript_status: Optional[str] = None
+
+
+@dataclass
+class GateDecisionEvent(BaseEvent):
+    """Typed outcome of a confirmation loop (S0-1 / S0-9).
+
+    Emitted whenever a NonEscalatingLoopAgent finishes: ``outcome`` is
+    "approved" when a confirmation agent escalated, or "exhausted" when the
+    loop hit ``max_iterations`` without approval.
+    """
+
+    type: Literal["gate_decision"] = "gate_decision"
+    loop: str = ""
+    outcome: str = ""
+    reason: str = ""
 
 
 @dataclass
@@ -137,6 +155,7 @@ StreamingEvent = (
     | CompletedEvent
     | VerificationEvent
     | HITLRequestEvent
+    | GateDecisionEvent
 )
 
 
@@ -152,6 +171,7 @@ EVENT_TYPE_MAP = {
     "completed": CompletedEvent,
     "verification": VerificationEvent,
     "hitl_request": HITLRequestEvent,
+    "gate_decision": GateDecisionEvent,
 }
 
 

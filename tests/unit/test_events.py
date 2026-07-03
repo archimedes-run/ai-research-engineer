@@ -5,8 +5,10 @@ from ai_research_engineer.core.events import (
     ErrorEvent,
     FunctionCallEvent,
     FunctionResponseEvent,
+    GateDecisionEvent,
     MessageEvent,
     UsageEvent,
+    create_event,
     event_to_dict,
 )
 
@@ -125,6 +127,50 @@ class TestCompletedEvent:
         assert event.total_events == 10
         assert event.files_count == 2
         assert len(event.files_created) == 2
+
+    def test_completed_event_manuscript_status_default_omitted(self):
+        """manuscript_status defaults to None and is omitted from the dict (S0-1)."""
+        event = CompletedEvent(session_id="s", timestamp="12:34:56.789")
+        assert event.manuscript_status is None
+        assert "manuscript_status" not in event_to_dict(event)
+
+    def test_completed_event_manuscript_status_serialized_when_set(self):
+        """A DRAFT_UNVERIFIED manuscript surfaces on the completed event (S0-1)."""
+        event = CompletedEvent(
+            session_id="s",
+            manuscript_status="DRAFT_UNVERIFIED",
+            timestamp="12:34:56.789",
+        )
+        assert event_to_dict(event)["manuscript_status"] == "DRAFT_UNVERIFIED"
+
+
+class TestGateDecisionEvent:
+    """Test GateDecisionEvent (S0-1 / S0-9)."""
+
+    def test_gate_decision_event_creation(self):
+        event = GateDecisionEvent(
+            loop="implementation_loop",
+            outcome="exhausted",
+            reason="max_iterations reached without approval",
+            timestamp="12:34:56.789",
+        )
+        assert event.type == "gate_decision"
+        assert event.loop == "implementation_loop"
+        assert event.outcome == "exhausted"
+
+    def test_gate_decision_registered_in_factory(self):
+        """create_event must know the gate_decision type and round-trip it."""
+        event = create_event(
+            "gate_decision",
+            loop="ideation_loop",
+            outcome="approved",
+            reason="confirmation agent approved",
+        )
+        payload = event_to_dict(event)
+        assert payload["type"] == "gate_decision"
+        assert payload["loop"] == "ideation_loop"
+        assert payload["outcome"] == "approved"
+        assert payload["reason"] == "confirmation agent approved"
 
 
 class TestEventToDict:

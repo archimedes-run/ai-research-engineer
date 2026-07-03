@@ -19,6 +19,28 @@ from ai_research_engineer.agents.adk.event_compression import compress_events_ma
 
 logger = logging.getLogger(__name__)
 
+# Stage status values (S0-2). A stage is only honestly "completed" when its
+# implementation loop was actually approved; otherwise it is recorded as
+# "completed_unverified" so no downstream phase mistakes it for verified work.
+STATUS_COMPLETED = "completed"
+STATUS_COMPLETED_UNVERIFIED = "completed_unverified"
+_COMPLETED_STATUSES = frozenset({STATUS_COMPLETED, STATUS_COMPLETED_UNVERIFIED})
+
+
+def derive_stage_status(implementation_outcome: Optional[str]) -> str:
+    """Map an implementation-loop outcome to an honest stage status (S0-2)."""
+    return STATUS_COMPLETED if implementation_outcome == "approved" else STATUS_COMPLETED_UNVERIFIED
+
+
+def stage_completed_flag(status: str) -> bool:
+    """Derive the legacy ``completed`` bool from the stage status (S0-2).
+
+    Both "completed" and "completed_unverified" mean the stage cycle has
+    finished — so the orchestrator's remaining-stage filter and existing
+    consumers keep working unchanged. The ``status`` field carries the truth.
+    """
+    return status in _COMPLETED_STATUSES
+
 
 def format_criteria_status(criteria: List[Dict], max_length: int = 80) -> str:
     """
@@ -606,8 +628,22 @@ class StageOrchestratorAgent(BaseAgent):
                 # Refresh stages anyway
                 stages = state.get("high_level_stages", [])
 
-            # NOW mark stage as completed (after criteria check and reflection)
-            next_stage["completed"] = True
+            # NOW record the stage's honest status (S0-2), after criteria check
+            # and reflection. The stage is "completed" only if its implementation
+            # loop was actually approved; otherwise "completed_unverified". The
+            # legacy `completed` bool is derived so downstream consumers and the
+            # remaining-stage filter keep working unchanged.
+            impl_outcome = state.get("implementation_loop_outcome")
+            stage_status = derive_stage_status(impl_outcome)
+            next_stage["status"] = stage_status
+            next_stage["completed"] = stage_completed_flag(stage_status)
+            if stage_status == STATUS_COMPLETED_UNVERIFIED:
+                logger.warning(
+                    "[StageOrchestrator] Stage %s recorded as '%s' (implementation_loop_outcome=%r)",
+                    stage_idx,
+                    stage_status,
+                    impl_outcome,
+                )
 
             # --- Tree: mark experiment node completed ---
             if _tree is not None:

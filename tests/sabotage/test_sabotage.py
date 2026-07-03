@@ -1,18 +1,20 @@
 """Stage 0 sabotage scenarios (S0-10).
 
 Six adversarial scenarios, all driven by in-process fakes — no real LLM calls
-and no network. Each is pinned to the Stage 0 feature that makes it pass; until
-that feature exists the test is expected to fail, so every scenario carries
-``@pytest.mark.xfail(strict=True, ...)``.
+and no network. Each is pinned to the Stage 0 feature that makes it pass.
 
-The "pending" trigger in each test is a real, spec-mandated seam:
+Scenarios (a) and (b) exercise implemented features (S0-1 loop outcomes and
+S0-2 honest stages) and drive the real seams. The remaining scenarios pin
+features that are still pending, so they carry
+``@pytest.mark.xfail(strict=True, ...)``:
   * the typed events from S0-9 (``core.events`` does not yet know these types),
   * the ``score=None`` / ``status`` Node contract from S0-4,
   * the graphify-stripping ``load_prompt`` from S0-7,
   * the intake classifier module from S0-5.
 
-All pending imports/calls happen *inside* the test bodies so that collection
-never errors — only the test itself fails (which is what xfail records).
+Pending imports/calls happen *inside* the still-xfail test bodies so that
+collection never errors — only the test itself fails (which is what xfail
+records).
 """
 
 import json
@@ -67,53 +69,43 @@ def write_eval_script(dirpath: Path, *, body: str) -> Path:
     return script
 
 
-def _run_gate_loop(gate, *, max_iterations: int) -> str:
-    """Run a confirmation loop against a fake gate; return the S0-1 outcome.
-
-    Mirrors the intended NonEscalatingLoopAgent contract: the loop exits early
-    ("approved") only when the gate approves, otherwise it exhausts its budget
-    ("exhausted"). The gate here is one of the deterministic fakes above.
-    """
-    for _ in range(max_iterations):
-        if gate():
-            return "approved"
-    return "exhausted"
-
-
 # --------------------------------------------------------------------------- #
 # (a) Reviewer always rejects -> loop "exhausted", stage "completed_unverified"
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(strict=True, reason="Stage 0 feature pending: S0-1/S0-2/S0-9")
 def test_a_reviewer_always_rejects_marks_stage_unverified():
+    # S0-1/S0-2/S0-9 are implemented — this scenario now exercises the real seams.
+    from ai_research_engineer.agents.adk.agent import classify_loop_outcome
+    from ai_research_engineer.agents.adk.stage_orchestrator import derive_stage_status, stage_completed_flag
     from ai_research_engineer.core.events import create_event, event_to_dict
 
     reviewer = FakeReviewAgent(blocking=True)
 
-    # A confirmation gate approves only when the review has no Blocking Issues.
-    def gate() -> bool:
-        return "Blocking Issues" not in reviewer.review()
-
-    outcome = _run_gate_loop(gate, max_iterations=3)
+    # Mocked confirmation loop: a gate approves only when the review has no
+    # Blocking Issues. A perpetually-rejecting reviewer never approves.
+    approved = False
+    for _ in range(3):
+        if "Blocking Issues" not in reviewer.review():
+            approved = True
+            break
     assert reviewer.calls == 3, "the reviewer must be consulted every iteration"
+
+    # S0-1: the loop records a typed outcome — here "exhausted".
+    outcome = classify_loop_outcome(approved)
     assert outcome == "exhausted", "a perpetually-rejecting reviewer must exhaust the loop"
 
-    # S0-2: an exhausted implementation loop -> stage is honest about being unverified.
-    state = {"implementation_loop_outcome": outcome}
-    stage = {
-        "completed": True,  # back-compat bool retained
-        "status": "completed" if state["implementation_loop_outcome"] == "approved" else "completed_unverified",
-    }
+    # S0-2: an exhausted implementation loop -> stage is honest about being unverified,
+    # while the legacy `completed` bool stays True (derived) for back-compat.
+    status = derive_stage_status(outcome)
+    stage = {"status": status, "completed": stage_completed_flag(status)}
     assert stage["status"] == "completed_unverified"
     assert stage["completed"] is True
-
-    # No downstream phase may treat an unverified stage as verified.
     assert stage["status"] != "completed", "unverified stage must not read as verified"
 
-    # S0-9 (pending): a structured gate_decision event fires and serializes.
+    # S0-9: a structured gate_decision event fires and serializes.
     event = create_event(
         "gate_decision",
         loop="implementation_loop",
-        outcome="exhausted",
+        outcome=outcome,
         reason="max_iterations reached without reviewer approval",
     )
     payload = event_to_dict(event)
@@ -125,34 +117,85 @@ def test_a_reviewer_always_rejects_marks_stage_unverified():
 # --------------------------------------------------------------------------- #
 # (b) Novelty scorer always rejects -> workflow halts after ideation
 # --------------------------------------------------------------------------- #
-@pytest.mark.xfail(strict=True, reason="Stage 0 feature pending: S0-1/S0-9")
 def test_b_novelty_rejection_halts_before_planning():
+    # S0-1 is implemented — drive the REAL HITLSequentialAgent and prove that an
+    # exhausted ideation loop halts the workflow before planning ever runs.
+    import asyncio
+    from unittest.mock import MagicMock
+
+    from ai_research_engineer.agents.adk.hitl_sequential import HITLSequentialAgent, loop_outcome_action
     from ai_research_engineer.core.events import create_event, event_to_dict
 
     scorer = FakeNoveltyScorer(approve=False)
-    planning_ran = {"value": False}
 
-    def run_planning() -> None:  # must never be called when ideation is exhausted
-        planning_ran["value"] = True
+    class _FakeIdeationLoop:
+        """Mocked ideation loop: never approved -> records 'exhausted' (S0-1)."""
 
-    outcome = _run_gate_loop(lambda: scorer.score_idea()["approved"], max_iterations=3)
+        name = "ideation_loop"
+
+        def __init__(self):
+            self.calls = 0
+
+        async def run_async(self, ctx):
+            self.calls += 1
+            approved = False
+            for _ in range(3):
+                if scorer.score_idea()["approved"]:
+                    approved = True
+                    break
+            ctx.session.state["ideation_loop_outcome"] = "approved" if approved else "exhausted"
+            if False:  # make this an async generator without yielding events
+                yield
+
+    class _FakePlanningLoop:
+        """Must never run once ideation is exhausted."""
+
+        name = "high_level_planning_loop"
+
+        def __init__(self):
+            self.calls = 0
+
+        async def run_async(self, ctx):
+            self.calls += 1
+            if False:
+                yield
+
+    ideation = _FakeIdeationLoop()
+    planning = _FakePlanningLoop()
+    workflow = HITLSequentialAgent(sub_agents=[ideation, planning], hitl_enabled=False)
+
+    ctx = MagicMock()
+    ctx.session.state = {}
+    ctx.session.id = "sabotage-b"
+
+    async def _drain():
+        return [event async for event in workflow._run_async_impl(ctx)]
+
+    events = asyncio.run(_drain())
+
+    assert ideation.calls == 1
     assert scorer.calls == 3
-    assert outcome == "exhausted"
+    assert ctx.session.state["ideation_loop_outcome"] == "exhausted"
 
-    # S0-1: HITLSequentialAgent must halt on an exhausted ideation_loop and NOT
-    # advance to planning. We model the halt: planning is skipped.
-    if outcome != "exhausted":
-        run_planning()
-    assert planning_ran["value"] is False, "planning must not run after ideation is exhausted"
+    # The core assertion: planning never ran — the workflow halted after ideation.
+    assert planning.calls == 0, "planning must not run after ideation is exhausted"
+    assert loop_outcome_action("ideation_loop", "exhausted") == "halt"
 
-    # S0-9 (pending): the halt is reported via a structured gate_decision event.
-    event = create_event(
-        "gate_decision",
-        loop="ideation_loop",
-        outcome="exhausted",
-        reason="novelty gate never approved an idea",
+    # A clear terminal halt event was emitted.
+    texts = [
+        part.text for event in events if event.content for part in event.content.parts if getattr(part, "text", None)
+    ]
+    assert any("halted" in t.lower() for t in texts), "a terminal halt event must be emitted"
+
+    # S0-9: the halt is reportable as a structured gate_decision event.
+    payload = event_to_dict(
+        create_event(
+            "gate_decision",
+            loop="ideation_loop",
+            outcome="exhausted",
+            reason="novelty gate never approved an idea",
+        )
     )
-    payload = event_to_dict(event)
     assert payload["type"] == "gate_decision"
     assert payload["loop"] == "ideation_loop"
 

@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, AsyncGenerator, Dict, List, Optional
 from google.adk.agents import BaseAgent, InvocationContext
 from google.adk.events import Event
 from google.adk.utils.context_utils import Aclosing
+from google.genai import types
 from pydantic import PrivateAttr
 from typing_extensions import override
 
@@ -34,6 +35,33 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+# Loops whose exhaustion must stop the workflow before any downstream phase
+# (autonomous) or trigger a HITL pause (supervised). See S0-1.
+HALT_ON_EXHAUSTED: tuple[str, ...] = ("ideation_loop",)
+
+# Loops whose exhaustion downgrades the manuscript but lets the run finish.
+DRAFT_UNVERIFIED_ON_EXHAUSTED: tuple[str, ...] = ("paper_writing_loop",)
+
+# Gate key used when a supervised run pauses on an exhausted ideation loop.
+_GATE_IDEATION_EXHAUSTED = "gate_ideation"
+
+
+def loop_outcome_action(loop_name: str, outcome: Optional[str]) -> str:
+    """Decide the workflow action for a just-finished loop (S0-1).
+
+    Returns one of:
+      "halt"             — stop the workflow (exhausted ideation_loop),
+      "draft_unverified" — mark the manuscript unverified but keep going,
+      "continue"         — proceed normally.
+    """
+    if outcome == "exhausted":
+        if loop_name in HALT_ON_EXHAUSTED:
+            return "halt"
+        if loop_name in DRAFT_UNVERIFIED_ON_EXHAUSTED:
+            return "draft_unverified"
+    return "continue"
+
 
 _SENTINEL: List = []  # empty list used to bypass Pydantic sub_agents validation
 
@@ -136,11 +164,18 @@ class HITLSequentialAgent(BaseAgent):
         _agents = self._hitl_sub_agents  # access via plain Python attr
 
         if not self._hitl_enabled:
-            # Autonomous mode: exactly like SequentialAgent
+            # Autonomous mode: like SequentialAgent, plus outcome-based branching.
             for agent in _agents:
                 async with Aclosing(agent.run_async(ctx)) as agen:
                     async for event in agen:
                         yield event
+
+                action = loop_outcome_action(agent.name, ctx.session.state.get(f"{agent.name}_outcome"))
+                if action == "draft_unverified":
+                    yield self._draft_unverified_event(ctx, agent.name)
+                elif action == "halt":
+                    yield self._halt_event(agent.name)
+                    return
             return
 
         # Supervised mode
@@ -163,6 +198,21 @@ class HITLSequentialAgent(BaseAgent):
             # Mark completed
             completed.append(agent_name)
             state["_hitl_completed_agents"] = completed
+
+            # Outcome-based branching (S0-1): halt / mark manuscript unverified.
+            action = loop_outcome_action(agent_name, state.get(f"{agent_name}_outcome"))
+            if action == "draft_unverified":
+                yield self._draft_unverified_event(ctx, agent_name)
+            elif action == "halt":
+                # Supervised mode pauses (instead of a hard halt) so a human can
+                # decide how to proceed after an exhausted ideation loop.
+                paused = await self._check_gate(ctx, _GATE_IDEATION_EXHAUSTED, agent_name)
+                if paused:
+                    return
+                # Fail-soft: if the pause could not be created, still stop rather
+                # than run downstream phases on an unverified ideation.
+                yield self._halt_event(agent_name)
+                return
 
             # Check gate
             gate_key = self._gates.get(agent_name)
@@ -223,6 +273,32 @@ class HITLSequentialAgent(BaseAgent):
         except Exception as exc:
             logger.error("[HITL] Gate checkpoint failed (fail-soft, continuing): %s", exc, exc_info=True)
             return False
+
+    def _halt_event(self, agent_name: str) -> Event:
+        """Terminal event emitted when an exhausted loop halts the workflow (S0-1)."""
+        text = (
+            f"\n\n🛑 **Workflow halted** — `{agent_name}` exhausted its iterations without "
+            "approval. No downstream phases will run.\n\n"
+        )
+        return Event(
+            author=self.name,
+            content=types.Content(role="model", parts=[types.Part(text=text)]),
+            turn_complete=True,
+        )
+
+    def _draft_unverified_event(self, ctx: InvocationContext, agent_name: str) -> Event:
+        """Tag the manuscript unverified and announce it, but let the run finish (S0-1)."""
+        ctx.session.state["manuscript_status"] = "DRAFT_UNVERIFIED"
+        text = (
+            f"\n\n⚠️ **Manuscript unverified** — `{agent_name}` exhausted its review iterations "
+            "without approval. Marking manuscript_status=DRAFT_UNVERIFIED; the run will still "
+            "finish.\n\n"
+        )
+        return Event(
+            author=self.name,
+            content=types.Content(role="model", parts=[types.Part(text=text)]),
+            turn_complete=False,
+        )
 
     def _build_context_md(self, session_id: str) -> str:
         """Build a markdown summary from the argument tree (fail-soft)."""

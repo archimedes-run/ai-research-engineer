@@ -24,6 +24,7 @@ from ai_research_engineer.core.events import (
     ErrorEvent,
     FunctionCallEvent,
     FunctionResponseEvent,
+    GateDecisionEvent,
     HITLRequestEvent,
     MessageEvent,
     UsageEvent,
@@ -552,6 +553,21 @@ class AIEngineer:
             except Exception as _he:
                 logger.warning("HITL pause check failed (fail-soft): %s", _he)
 
+            # Emit structured gate_decision events recorded by the loop agents (S0-1).
+            try:
+                session = getattr(self, "session", None)
+                if session is not None:
+                    for decision in session.state.get("_gate_decisions", []) or []:
+                        gd_event = GateDecisionEvent(
+                            loop=decision.get("loop", ""),
+                            outcome=decision.get("outcome", ""),
+                            reason=decision.get("reason", ""),
+                            timestamp=datetime.now().strftime("%H:%M:%S.%f")[:-3],
+                        )
+                        yield event_to_dict(gd_event)
+            except Exception as _ge:
+                logger.warning("gate_decision emission failed (fail-soft): %s", _ge)
+
             # Emit VerificationEvent if the reference_verifier_agent ran
             try:
                 session = getattr(self, "session", None)
@@ -587,6 +603,12 @@ class AIEngineer:
                             relative_path = file_path.relative_to(self.working_dir)
                             files_created.append(str(relative_path))
 
+            # Surface an unverified manuscript on the final event (S0-1).
+            manuscript_status = None
+            session = getattr(self, "session", None)
+            if session is not None:
+                manuscript_status = session.state.get("manuscript_status")
+
             # Final completed event
             completed_event = CompletedEvent(
                 session_id=self.session_id,
@@ -594,6 +616,7 @@ class AIEngineer:
                 total_events=message_event_number,
                 files_created=files_created,
                 files_count=len(files_created),
+                manuscript_status=manuscript_status,
                 timestamp=datetime.now().strftime("%H:%M:%S.%f")[:-3],
             )
             yield event_to_dict(completed_event)

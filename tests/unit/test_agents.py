@@ -390,6 +390,64 @@ class TestOrchestratorTreeDualWrite:
 
 
 # ---------------------------------------------------------------------------
+# Honest stage status (S0-2)
+# ---------------------------------------------------------------------------
+
+
+class TestStageStatusHonesty:
+    """The stage dict must record 'completed' vs 'completed_unverified' honestly."""
+
+    def test_pure_status_derivation(self):
+        from ai_research_engineer.agents.adk.stage_orchestrator import (
+            derive_stage_status,
+            stage_completed_flag,
+        )
+
+        assert derive_stage_status("approved") == "completed"
+        assert derive_stage_status("exhausted") == "completed_unverified"
+        assert derive_stage_status(None) == "completed_unverified"
+        # Both terminal statuses mean the stage cycle finished (back-compat bool).
+        assert stage_completed_flag("completed") is True
+        assert stage_completed_flag("completed_unverified") is True
+        assert stage_completed_flag("pending") is False
+
+    def test_stage_unverified_when_impl_loop_not_approved(self):
+        """No implementation_loop_outcome -> stage 'completed_unverified', completed=True."""
+        orch = _make_full_orch(checker_met=True)
+        state = _full_run_state()
+        ctx = _make_ctx(state, session_id="orch-status-unverified")
+        asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        stage = state["high_level_stages"][0]
+        assert stage["status"] == "completed_unverified"
+        assert stage["completed"] is True  # legacy bool retained, derived
+
+    def test_stage_completed_when_impl_loop_approved(self):
+        """implementation_loop_outcome == 'approved' -> stage 'completed'."""
+
+        def impl_mutation(state):
+            state["implementation_summary"] = "Implemented successfully"
+            state["implementation_loop_outcome"] = "approved"
+
+        def checker_mutation(state):
+            for c in state.get("high_level_success_criteria", []):
+                c["met"] = True
+
+        orch = StageOrchestratorAgent(
+            implementation_loop=_FakeSubAgent("impl", state_mutation=impl_mutation),
+            criteria_checker=_FakeSubAgent("checker", state_mutation=checker_mutation),
+            stage_reflector=_FakeSubAgent("reflector"),
+        )
+        state = _full_run_state()
+        ctx = _make_ctx(state, session_id="orch-status-approved")
+        asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        stage = state["high_level_stages"][0]
+        assert stage["status"] == "completed"
+        assert stage["completed"] is True
+
+
+# ---------------------------------------------------------------------------
 # Failure isolation: tree errors must not affect orchestrator output
 # ---------------------------------------------------------------------------
 
