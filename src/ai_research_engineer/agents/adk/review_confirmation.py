@@ -8,6 +8,7 @@ of normal text output and does not have access to any tools.
 
 import json
 import logging
+from pathlib import Path
 from typing import Any, AsyncGenerator, Optional
 
 from google.adk.agents import BaseAgent, InvocationContext
@@ -307,19 +308,44 @@ class IdeationTournamentAgent(BaseAgent):
         return Event(author=self.name, content=types.Content(role="model", parts=[types.Part(text=text)]),
                      turn_complete=False)
 
-    def _recall_once(self, ideas: list) -> list:
-        """One recall over the union of the ideas' text -> shared candidate corpus."""
-        import dataclasses
+    def _persist_audit(self, idea, verdict, table, prefiltered, recall_meta, mvpt) -> None:
+        """S2-8: append this idea's full audit to knowledge_base/novelty_audit.json."""
+        try:
+            from ai_research_engineer.core.novelty.audit import append_audit, build_audit_entry
 
-        from ai_research_engineer.core.novelty.recall import recall_prior_work
+            entry = build_audit_entry(idea, verdict=verdict, table=table, prefiltered=prefiltered,
+                                      recall=recall_meta, mvpt=mvpt)
+            append_audit(self._working_dir, entry)
+        except Exception as exc:  # audit is best-effort — never break ideation
+            logger.debug("[tournament] audit persist failed: %s", exc)
+
+    def _recall_once(self, ideas: list) -> tuple:
+        """One recall over the union of the ideas' text. Returns
+        ``(corpus, recall_meta)`` where recall_meta carries the report's
+        per-channel counts + channel_status for the audit."""
+        import dataclasses
+        import json as _json
+
+        from ai_research_engineer.core.novelty.recall import _idea_id, recall_prior_work
 
         union = {"title": "", "description": " ".join(
             f"{i.get('title', '')} {i.get('description', '')}".strip() for i in ideas)}
         try:
-            return [dataclasses.asdict(c) for c in recall_prior_work(union, self._working_dir)]
+            corpus = [dataclasses.asdict(c) for c in recall_prior_work(union, self._working_dir)]
         except Exception as exc:
             logger.warning("[tournament] recall failed: %s", exc)
-            return []
+            return [], {}
+        # Read the persisted recall report for its channel_status (S2-1).
+        meta = {}
+        report = Path(self._working_dir) / "knowledge_base" / "novelty" / f"recall_{_idea_id(union)}.json"
+        if report.is_file():
+            try:
+                data = _json.loads(report.read_text(encoding="utf-8"))
+                meta = {"per_channel_counts": data.get("per_channel_counts", {}),
+                        "channel_status": data.get("channel_status", {})}
+            except Exception:
+                meta = {}
+        return corpus, meta
 
     @override
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
@@ -330,7 +356,7 @@ class IdeationTournamentAgent(BaseAgent):
             yield self._info("🏟️ Tournament: no ideas to evaluate.")
             return
 
-        corpus = self._recall_once(ideas)          # S2-1 recall — ONCE for the round
+        corpus, recall_meta = self._recall_once(ideas)   # S2-1 recall — ONCE for the round
         state["recall_candidates"] = json.dumps(corpus)
 
         audits = []
@@ -341,16 +367,20 @@ class IdeationTournamentAgent(BaseAgent):
                 async for ev in sub.run_async(ctx):
                     yield ev
             verdict = state.get("novelty_verdict") or {}
-            table = _parse_json_maybe(state.get("novelty_scorer_feedback")).get("differentiation_table", [])
+            scorer_out = _parse_json_maybe(state.get("novelty_scorer_feedback"))
+            table = scorer_out.get("differentiation_table", [])
+            prefiltered = _parse_candidates(state.get("prefiltered_works"))
             decision = {
                 "approved": bool(verdict.get("approved")),
                 "verdict": verdict.get("verdict"),
                 "reason": verdict.get("reason"),
                 "table": table,
-                "prefiltered": _parse_candidates(state.get("prefiltered_works")),
+                "prefiltered": prefiltered,
                 "killing_works": verdict.get("killing_works", []),
             }
             audits.append(build_audit(idx, idea, decision))
+            # S2-8: append the full per-idea audit for the UI / ideation memory.
+            self._persist_audit(idea, verdict, table, prefiltered, recall_meta, scorer_out.get("mvpt"))
 
         selection = select_winner(audits)
         state["ideation_audits"] = audits

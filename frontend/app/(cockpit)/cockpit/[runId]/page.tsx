@@ -1119,6 +1119,129 @@ function KnowledgeGraphTab({ runId }: { runId: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Novelty evidence tab (S2-9) — renders knowledge_base/novelty_audit.json
+// ---------------------------------------------------------------------------
+type NoveltyCard = {
+  work_id?: string; title?: string; url?: string; source?: string
+  overlap_summary?: string; differs_because?: string; overlap_severity?: string
+}
+type NoveltyAudit = {
+  idea_id?: string; idea_title?: string; idea_description?: string
+  approved?: boolean; verdict?: string; reason?: string
+  differentiation_table?: NoveltyCard[]
+  recall?: { per_channel_counts?: Record<string, number>; channel_status?: Record<string, string> }
+  falsifier?: { rounds?: number; verdict?: string; killing_works?: unknown[] }
+}
+
+const SEVERITY_STYLE: Record<string, { bg: string; fg: string; label: string }> = {
+  none: { bg: '#1E8A3E18', fg: C.green, label: 'none' },
+  partial: { bg: '#B0701018', fg: C.amber, label: 'partial' },
+  core: { bg: '#E0524018', fg: C.brand, label: 'core' },
+}
+function severityStyle(s?: string) { return SEVERITY_STYLE[s ?? ''] ?? { bg: `${C.muted}18`, fg: C.muted, label: s ?? '—' } }
+
+function NoveltyTab({ runId }: { runId: string }) {
+  const [audits, setAudits] = useState<NoveltyAudit[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    async function load() {
+      const res = await fetch(apiUrl(`/api/sessions/${runId}/novelty_audit`), { headers: apiHeaders() }).catch(() => null)
+      if (!alive) return
+      if (!res || !res.ok) { setAudits([]); if (res && !res.ok) setError(`HTTP ${res.status}`); return }
+      const data = await res.json().catch(() => [])
+      if (alive) { setAudits(Array.isArray(data) ? data : []); setError(null) }
+    }
+    load()
+    const id = setInterval(load, 5000)
+    return () => { alive = false; clearInterval(id) }
+  }, [runId])
+
+  if (audits === null) return <div className="flex items-center justify-center h-full text-xs" style={{ color: C.muted }}>Loading…</div>
+  if (audits.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6" style={{ color: C.muted }}>
+        <p className="text-sm font-semibold" style={{ color: C.text }}>No novelty audits yet</p>
+        <p className="text-xs max-w-sm leading-relaxed">Once ideas are scored, each one&apos;s differentiation table, falsifier verdict, and recall channels will appear here.{error ? ` (${error})` : ''}</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-full overflow-y-auto feed-scroll p-5 space-y-5" style={{ background: C.bg }}>
+      {audits.map((a, i) => {
+        const table = a.differentiation_table ?? []
+        const status = a.recall?.channel_status ?? {}
+        const counts = a.recall?.per_channel_counts ?? {}
+        const approved = !!a.approved
+        return (
+          <div key={a.idea_id ?? i} className="rounded-2xl border" style={{ borderColor: C.border, background: C.surface }}>
+            {/* Idea header + verdict */}
+            <div className="flex items-start gap-3 px-5 py-4 border-b flex-wrap" style={{ borderColor: C.border }}>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-semibold truncate" style={{ color: C.text }}>{a.idea_title || `Idea ${i + 1}`}</div>
+                {a.reason && <div className="text-xs mt-0.5" style={{ color: C.muted }}>{a.reason}</div>}
+              </div>
+              <span className="text-xs px-2.5 py-1 rounded-full font-semibold" style={{ background: approved ? `${C.green}18` : `${C.brand}18`, color: approved ? C.green : C.brand }}>
+                {approved ? 'APPROVED' : 'REJECTED'}
+              </span>
+            </div>
+
+            {/* Recall channels (with dead badge) */}
+            {Object.keys(status).length > 0 && (
+              <div className="flex items-center gap-2 px-5 pt-3 flex-wrap">
+                <span className="text-xs uppercase tracking-wide mr-1" style={{ color: C.muted }}>Recall channels</span>
+                {Object.entries(status).map(([ch, st]) => {
+                  const dead = st === 'dead'
+                  const unavail = st === 'unavailable'
+                  const fg = dead ? C.brand : unavail ? C.muted : C.green
+                  return (
+                    <span key={ch} className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-md border" style={{ borderColor: C.border, color: fg }}>
+                      {ch}{typeof counts[ch] === 'number' ? ` ·${counts[ch]}` : ''}
+                      {(dead || unavail) && <span className="px-1 rounded" style={{ background: `${fg}22`, color: fg, fontSize: 9, fontWeight: 700 }}>{dead ? 'DEAD' : 'N/A'}</span>}
+                    </span>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Falsifier verdict */}
+            {a.falsifier && (
+              <div className="px-5 pt-3 text-xs" style={{ color: C.muted }}>
+                Falsifier: <span style={{ color: a.falsifier.verdict === 'reject' ? C.brand : C.green, fontWeight: 600 }}>{a.falsifier.verdict ?? '—'}</span>
+                {typeof a.falsifier.rounds === 'number' ? ` · ${a.falsifier.rounds} round(s)` : ''}
+              </div>
+            )}
+
+            {/* Differentiation table as cards */}
+            <div className="p-5 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))' }}>
+              {table.length === 0 && <div className="text-xs" style={{ color: C.muted }}>No differentiation rows recorded.</div>}
+              {table.map((card, j) => {
+                const sev = severityStyle(card.overlap_severity)
+                return (
+                  <div key={card.work_id || j} className="rounded-xl border p-3 flex flex-col gap-1.5" style={{ borderColor: C.border, background: C.bg }}>
+                    <div className="flex items-start gap-2">
+                      <span className="text-xs font-semibold flex-1 min-w-0 break-words" style={{ color: C.text }}>{card.title || card.work_id}</span>
+                      <span className="text-xs px-1.5 py-0.5 rounded-md font-semibold shrink-0" style={{ background: sev.bg, color: sev.fg }}>{sev.label}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {card.source && <span className="text-xs px-1.5 py-0.5 rounded border" style={{ borderColor: C.border, color: C.muted, fontSize: 10 }}>{card.source}</span>}
+                      {card.url && <a href={card.url} target="_blank" rel="noreferrer" className="text-xs underline truncate" style={{ color: C.blue }}>link</a>}
+                    </div>
+                    {card.differs_because && <div className="text-xs leading-relaxed" style={{ color: C.muted }}>{card.differs_because}</div>}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Inspector tab
 // ---------------------------------------------------------------------------
 function InspectorTab({ treeData }: { treeData: TreeData | null }) {
@@ -1149,7 +1272,7 @@ function InspectorTab({ treeData }: { treeData: TreeData | null }) {
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
-type Tab = 'activity' | 'paper' | 'files' | 'graph' | 'inspector'
+type Tab = 'activity' | 'paper' | 'files' | 'graph' | 'novelty' | 'inspector'
 
 export default function RunPage({ params }: { params: Promise<{ runId: string }> }) {
   const { runId } = use(params)
@@ -1336,6 +1459,7 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
     { id: 'paper', label: 'Paper' },
     { id: 'files', label: 'Codebase' },
     { id: 'graph', label: 'Literature Map' },
+    { id: 'novelty', label: 'Novelty' },
     { id: 'inspector', label: 'Inspector' },
   ]
 
@@ -1429,6 +1553,7 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
           {activeTab === 'paper' && <PaperViewer runId={runId} isTerminal={isTerminal} />}
           {activeTab === 'files' && <CodebaseTab runId={runId} isTerminal={isTerminal} editingPath={editingPath} session={session} />}
           {activeTab === 'graph' && <KnowledgeGraphTab runId={runId} />}
+          {activeTab === 'novelty' && <NoveltyTab runId={runId} />}
           {activeTab === 'inspector' && <InspectorTab treeData={treeData} />}
         </div>
 

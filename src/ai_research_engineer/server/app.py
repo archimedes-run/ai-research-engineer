@@ -607,6 +607,28 @@ async def get_session_graph(session_id: str, name: str):
         raise HTTPException(status_code=422, detail="Graph file is not valid JSON")
 
 
+@app.get("/api/sessions/{session_id}/novelty_audit")
+async def get_session_novelty_audit(session_id: str):
+    """Serve the per-idea novelty audit for a run (S2-8/S2-9).
+
+    Read-only and resilient (mirrors the S1-7 graph endpoints): unknown session
+    -> 404; no audit yet -> []; corrupt file -> 422. A traversal attempt in
+    ``session_id`` fails the session lookup -> 404.
+    """
+    session = RunStore.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    audit_path = RunStore.DATA_DIR / "runs" / session_id / "knowledge_base" / "novelty_audit.json"
+    if not audit_path.is_file():
+        return []
+    try:
+        data = json.loads(audit_path.read_text(encoding="utf-8"))
+    except Exception:
+        raise HTTPException(status_code=422, detail="novelty_audit.json is not valid JSON")
+    return data if isinstance(data, list) else []
+
+
 @app.get("/api/sessions/{session_id}/stream")
 async def stream_session(
     session_id: str,
