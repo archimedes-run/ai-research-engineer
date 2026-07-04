@@ -543,6 +543,7 @@ def create_agent(
         download_paper,
         list_arxiv_papers,
         read_paper,
+        search_paper,
         omni_search_papers,
         build_citation_graph,
         # Code Graph Tools
@@ -615,8 +616,14 @@ def create_agent(
     def list_arxiv_papers_bound() -> str:
         return list_arxiv_papers(working_dir_str)
         
-    def read_paper_bound(paper_id: str) -> str:
-        return read_paper(paper_id, working_dir_str)
+    def read_paper_bound(paper_id: str, section: Optional[str] = None) -> str:
+        """Read a downloaded paper. With `section`, return only that section (fuzzy
+        title match); without, return a table of contents + abstract + first section."""
+        return read_paper(paper_id, working_dir_str, section)
+
+    def search_paper_bound(paper_id: str, query: str, top_k: int = 5) -> str:
+        """Semantic search within a single downloaded paper's sections; returns the top_k matching chunks."""
+        return search_paper(paper_id, query, working_dir_str, top_k)
 
     def build_citation_graph_bound(paper_id: str) -> str:
         return build_citation_graph(paper_id, working_dir_str)
@@ -672,6 +679,7 @@ def create_agent(
         download_paper_bound,
         list_arxiv_papers_bound,
         read_paper_bound,
+        search_paper_bound,
         omni_search_papers,          # No workspace needed
         build_citation_graph_bound,
         

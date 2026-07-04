@@ -341,48 +341,5 @@ def list_papers(working_dir: str) -> str:
     return json.dumps({"downloaded_papers": papers}, indent=2)
 
 
-def read_paper(paper_id: str, working_dir: str) -> str:
-    """
-    Read the full text of a locally downloaded paper in markdown. 
-    Requires download_paper to be called first.
-    """
-    try:
-        work_path = Path(working_dir).resolve()
-        html_path = work_path / "literature" / f"{paper_id}.html"
-        pdf_path = work_path / "literature" / f"{paper_id}.pdf"
-        
-        # Parse HTML if it exists
-        if html_path.exists():
-            html_content = html_path.read_text(encoding='utf-8')
-            # Strip tags to create basic markdown-friendly text
-            text = re.sub(r'<style.*?</style>', '', html_content, flags=re.DOTALL)
-            text = re.sub(r'<script.*?</script>', '', text, flags=re.DOTALL)
-            text = re.sub(r'<[^>]+>', ' ', text)
-            text = re.sub(r'\n\s*\n', '\n\n', text).strip()
-            
-            if len(text) > 40000:
-                text = text[:40000] + "\n\n...[TRUNCATED DUE TO LENGTH]..."
-            return text
-            
-        # Parse PDF if HTML doesn't exist
-        elif pdf_path.exists():
-            try:
-                import PyPDF2
-                text = []
-                with open(pdf_path, 'rb') as f:
-                    reader = PyPDF2.PdfReader(f)
-                    for page in reader.pages:
-                        text.append(page.extract_text())
-                        
-                full_text = "\n\n".join(text)
-                if len(full_text) > 40000:
-                    full_text = full_text[:40000] + "\n\n...[TRUNCATED DUE TO LENGTH]..."
-                return full_text
-            except ImportError:
-                return "Error: PyPDF2 is required to read PDFs. Please run `uv add PyPDF2` in your terminal to extract text."
-                
-        else:
-            return f"Error: Paper {paper_id} not found locally. Call download_paper first."
-            
-    except Exception as e:
-        return f"Error reading paper: {e}"
+# read_paper moved to tools/ingestion.py (S1-2): section-aware ingestion with no
+# length-capped truncation, replacing the old regex tag-stripper and blob path.

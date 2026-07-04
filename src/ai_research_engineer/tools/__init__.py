@@ -23,17 +23,17 @@ from ai_research_engineer.tools.file_ops import (
     write_file,
 )
 
+# Import ArXiv tools
+from ai_research_engineer.tools.ingestion import read_paper, search_paper
+
 # Import LaTeX tools
 from ai_research_engineer.tools.latex_ops import compile_latex_to_pdf
-
-# Import ArXiv tools
 from ai_research_engineer.tools.research_ops import (
     build_citation_graph,
     discover_high_impact_papers,
     download_paper,
     list_papers as list_arxiv_papers,
     omni_search_papers,
-    read_paper,
     search_papers as arxiv_search_papers,
 )
 
@@ -80,6 +80,7 @@ __all__ = [
     "download_paper",
     "list_arxiv_papers",
     "read_paper",
+    "search_paper",
     "omni_search_papers",
     "build_citation_graph",
     
