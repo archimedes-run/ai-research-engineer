@@ -60,6 +60,31 @@ jobs:
       - name: Run sabotage suite
         run: uv run pytest tests/sabotage -q --tb=short
 
+  novelty-ci-lite:
+    name: Novelty — ci-lite benchmark (offline)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      # Offline by design: no API keys. The S2-7 novelty engine plumbing
+      # (recall -> prefilter -> differentiate -> falsify) is exercised on 5 KNOWN
+      # + 3 PLAUSIBLE fixture rows with canned outputs; every prediction must
+      # match ground truth or the harness exits non-zero. Quality numbers are
+      # NOT asserted here (that is the full live run, CC-2.7).
+      - name: Run novelty ci-lite
+        run: uv run python -m benchmarks.novelty.run_novelty_bench --ci-lite
+
   frontend:
     name: Frontend — type-check & build
     runs-on: ubuntu-latest
