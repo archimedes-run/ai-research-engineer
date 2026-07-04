@@ -29,6 +29,7 @@ from ai_research_engineer.agents.adk.loop_detection import LoopDetectionAgent
 from ai_research_engineer.agents.adk.review_confirmation import (
     create_falsifier_reverdict_agent,
     create_ideation_gate_agent,
+    create_ideation_tournament_agent,
     create_prefilter_agent,
     create_review_confirmation_agent,
 )
@@ -885,17 +886,22 @@ def create_agent(
         novelty_scorer_agent, novelty_falsifier_agent, k=12
     )
 
+    # S2-6: the tournament evaluates 4-6 ideas per round against ONE shared recall
+    # corpus, driving prefilter -> scorer -> falsifier re-verdict per idea, and
+    # picks the ranked winner (runner-up stored in state). It replaces the
+    # per-single-idea [prefilter, scorer, reverdict] chain; the code gate still
+    # reads the final verdict and sets loop exit.
+    ideation_tournament_agent = create_ideation_tournament_agent(
+        create_prefilter_agent(), novelty_scorer_agent, falsifier_reverdict_agent,
+        k=12, working_dir=str(working_dir),
+    )
+
     ideation_loop = NonEscalatingLoopAgent(
         name="ideation_loop",
         description="Iteratively extracts or brainstorms research ideas based on the specified mode.",
         sub_agents=[
             idea_generator_agent,
-            # S2-2: rank recall candidates and hand the scorer the top-k prefiltered
-            # works (state["prefiltered_works"]).
-            create_prefilter_agent(),
-            novelty_scorer_agent,
-            # S2-4: full falsifier re-verdict loop (scorer re-runs on finds).
-            falsifier_reverdict_agent,
+            ideation_tournament_agent,
             # S2-3: the ideation novelty gate is CODE-ONLY — reads the final verdict
             # and sets loop exit directly.
             create_ideation_gate_agent(k=12),

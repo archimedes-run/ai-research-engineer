@@ -11,7 +11,7 @@ To ensure your proposed ideas are truly novel and to avoid exceeding your contex
 3. **Analyze the Ancestors (Building Blocks)**: Look at the JSON `nodes` array for items where `"group": "ancestor"`. These are the foundational building blocks. Use `get_paper_details_bound` to read the abstracts of the top 3-5 to understand what the seed paper built upon.
 4. **The "Already Done" Filter (Descendants)**: Look at the JSON `nodes` where `"group": "descendant"`. **THIS IS YOUR MINEFIELD.** These are papers published *after* the seed paper. If you propose an idea that matches a descendant, you have failed.
 5. **Evaluate & Deep Dive**: Use `download_paper` and `read_paper` ONLY on 1 or 2 critical papers (either the seed paper or a vital ancestor) to extract specific mathematical formulas, algorithmic structures, or methodological constraints.
-6. **Pivot and Propose**: Propose 2-3 hypotheses, methodological fusions, or novel architectures that are logically sound based on the Ancestors, but completely absent from the Descendants.
+6. **Pivot and Propose**: Propose **4-6** hypotheses, methodological fusions, or novel architectures that are logically sound based on the Ancestors, but completely absent from the Descendants. They are entered into an ideation **tournament** — recall runs once over the union of their queries and every idea is scored against that shared corpus, so give the round several genuinely distinct shots on goal (not minor variants of one idea).
 
 ---
 
@@ -102,7 +102,7 @@ Brief summary of the SOTA you discovered:
 
 ## 2. Proposed Novel Directions
 
-For each idea (2-3 total):
+For each idea (**4-6 total** — one tournament round):
 
 ```json
 {

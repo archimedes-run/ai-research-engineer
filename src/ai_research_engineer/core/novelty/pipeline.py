@@ -61,6 +61,8 @@ def evaluate_idea(
             "reason": dup["reason"],
             "deduped": True,
             "cosine": dup["cosine"],
+            "table": [],
+            "prefiltered": [],
         }
         _emit(record_gate_decision, "rejected", f"duplicate of a rejected idea ({dup['cosine']}): {dup['reason']}")
         return decision
@@ -75,11 +77,14 @@ def evaluate_idea(
         store.record_rejection(idea, verdict.reason)
         _emit(record_gate_decision, "rejected", verdict.reason)
         return {"approved": False, "verdict": "reject", "reason": verdict.reason,
-                "killing_works": verdict.killing_works}
+                "killing_works": verdict.killing_works, "table": verdict.table, "prefiltered": prefiltered}
 
     # 4) Falsifier rounds on an approve.
     result = run_falsifier_rounds(idea, verdict, prefiltered, score_fn=score_fn, falsify_fn=falsify_fn, k=k)
     if not result["approved"]:
         store.record_rejection(idea, result["reason"])
+    # Ranking inputs for the tournament (S2-6): the approve table + prefilter scores.
+    result.setdefault("table", verdict.table)
+    result["prefiltered"] = prefiltered
     _emit(record_gate_decision, "approved" if result["approved"] else "rejected", result["reason"])
     return result

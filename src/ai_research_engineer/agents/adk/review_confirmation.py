@@ -24,6 +24,7 @@ from ai_research_engineer.core.config import get_prefilter_k
 from ai_research_engineer.core.novelty.falsifier import DEFAULT_MAX_ROUNDS, falsifier_flow
 from ai_research_engineer.core.novelty.gate import evaluate_novelty, ideation_gate_decision
 from ai_research_engineer.core.novelty.prefilter import top_similar
+from ai_research_engineer.core.novelty.tournament import build_audit, select_winner
 from ai_research_engineer.prompts import load_prompt
 
 
@@ -246,6 +247,133 @@ class PrefilterAgent(BaseAgent):
 def create_prefilter_agent(k: Optional[int] = None) -> PrefilterAgent:
     """Factory for the S2-2 prefilter agent (sits between recall and the scorer)."""
     return PrefilterAgent(k=k)
+
+
+def _norm_idea(x) -> dict:
+    if isinstance(x, dict):
+        return {"title": x.get("title") or "", "description": x.get("description") or x.get("why_novel") or ""}
+    return {"title": "", "description": str(x)}
+
+
+def _parse_ideas(raw) -> list:
+    """Parse the generator output into a list of {title, description} ideas."""
+    data = raw
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw)
+        except Exception:
+            data = raw
+    if isinstance(data, list):
+        return [_norm_idea(x) for x in data if x]
+    if isinstance(data, dict):
+        for key in ("ideas", "new_ideas", "proposed_ideas", "directions"):
+            if isinstance(data.get(key), list):
+                return [_norm_idea(x) for x in data[key] if x]
+        if data.get("title") or data.get("description"):
+            return [_norm_idea(data)]
+    if isinstance(raw, str) and raw.strip():
+        return [{"title": "", "description": raw.strip()}]
+    return []
+
+
+class IdeationTournamentAgent(BaseAgent):
+    """S2-6 — runs one ideation round as a tournament over 4-6 ideas.
+
+    Recall (S2-1) runs ONCE on the union of the ideas' queries; each idea is then
+    prefiltered + scored + falsified against that shared corpus by re-using the
+    prefilter / scorer / re-verdict sub-agents. The winner is chosen by the SHARED
+    ``select_winner`` ranking; the runner-up (with its audit) is stored in
+    ``state['ideation_runner_up']``. The final ``novelty_verdict`` (winner ->
+    approve, none -> reject) is handed to the code gate, so zero approved ideas
+    exhaust the loop per Stage 0 semantics — never a silent continue.
+    """
+
+    _k: Any = PrivateAttr()
+    _prefilter: Any = PrivateAttr()
+    _scorer: Any = PrivateAttr()
+    _reverdict: Any = PrivateAttr()
+    _working_dir: Any = PrivateAttr()
+
+    def __init__(self, prefilter_agent, scorer_agent, reverdict_agent, k: int = 12,
+                 working_dir: str = "", name: str = "ideation_tournament_agent"):
+        super().__init__(name=name, description="Runs the ideation tournament (shared recall corpus, ranked winner).")
+        self._prefilter = prefilter_agent
+        self._scorer = scorer_agent
+        self._reverdict = reverdict_agent
+        self._k = k
+        self._working_dir = working_dir
+
+    def _info(self, text: str) -> Event:
+        return Event(author=self.name, content=types.Content(role="model", parts=[types.Part(text=text)]),
+                     turn_complete=False)
+
+    def _recall_once(self, ideas: list) -> list:
+        """One recall over the union of the ideas' text -> shared candidate corpus."""
+        import dataclasses
+
+        from ai_research_engineer.core.novelty.recall import recall_prior_work
+
+        union = {"title": "", "description": " ".join(
+            f"{i.get('title', '')} {i.get('description', '')}".strip() for i in ideas)}
+        try:
+            return [dataclasses.asdict(c) for c in recall_prior_work(union, self._working_dir)]
+        except Exception as exc:
+            logger.warning("[tournament] recall failed: %s", exc)
+            return []
+
+    @override
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        state = ctx.session.state
+        ideas = _parse_ideas(state.get("generated_ideas"))
+        if not ideas:
+            state["novelty_verdict"] = {"approved": False, "verdict": "reject", "reason": "no ideas generated"}
+            yield self._info("🏟️ Tournament: no ideas to evaluate.")
+            return
+
+        corpus = self._recall_once(ideas)          # S2-1 recall — ONCE for the round
+        state["recall_candidates"] = json.dumps(corpus)
+
+        audits = []
+        for idx, idea in enumerate(ideas):
+            state["generated_ideas"] = json.dumps(idea)
+            state.pop("novelty_verdict", None)
+            for sub in (self._prefilter, self._scorer, self._reverdict):
+                async for ev in sub.run_async(ctx):
+                    yield ev
+            verdict = state.get("novelty_verdict") or {}
+            table = _parse_json_maybe(state.get("novelty_scorer_feedback")).get("differentiation_table", [])
+            decision = {
+                "approved": bool(verdict.get("approved")),
+                "verdict": verdict.get("verdict"),
+                "reason": verdict.get("reason"),
+                "table": table,
+                "prefiltered": _parse_candidates(state.get("prefiltered_works")),
+                "killing_works": verdict.get("killing_works", []),
+            }
+            audits.append(build_audit(idx, idea, decision))
+
+        selection = select_winner(audits)
+        state["ideation_audits"] = audits
+        if selection["winner"]:
+            state["generated_ideas"] = json.dumps(selection["winner"]["idea"])
+            state["novelty_verdict"] = {"approved": True, "verdict": "approve",
+                                        "reason": "tournament winner", "killing_works": []}
+            if selection["runner_up"]:
+                state["ideation_runner_up"] = selection["runner_up"]
+            yield self._info(
+                f"🏟️ Tournament: {selection['approved_count']}/{len(ideas)} approved — winner selected"
+                + (", runner-up stored." if selection["runner_up"] else ".")
+            )
+        else:
+            state["novelty_verdict"] = {"approved": False, "verdict": "reject",
+                                        "reason": "no idea survived the novelty audit", "killing_works": []}
+            yield self._info(f"🏟️ Tournament: 0/{len(ideas)} approved — ideation will regenerate or exhaust.")
+
+
+def create_ideation_tournament_agent(prefilter_agent, scorer_agent, reverdict_agent, k: int = 12,
+                                     working_dir: str = "") -> IdeationTournamentAgent:
+    """Factory for the S2-6 ideation tournament agent."""
+    return IdeationTournamentAgent(prefilter_agent, scorer_agent, reverdict_agent, k=k, working_dir=working_dir)
 
 
 class FalsifierReVerdictAgent(BaseAgent):
