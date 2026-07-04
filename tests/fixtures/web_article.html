@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><title>Understanding Attention Mechanisms</title></head>
+<body>
+<nav>Home | Blog | About | Login — NAVIGATION_BOILERPLATE_SHOULD_BE_STRIPPED</nav>
+<article>
+<h1>Understanding Attention Mechanisms</h1>
+<p>The attention mechanism computes a weighted sum of value vectors, where the weights are produced by a compatibility function between a query and the corresponding keys. This first substantial paragraph is genuine article content that a readability extractor is expected to keep in the output.</p>
+<h2>Scaled Dot-Product Attention</h2>
+<p>We compute the dot products of the query with all keys, divide each by the square root of the key dimension, and apply a softmax to obtain the weights on the values. This paragraph is long enough to survive the content-density filter used by the extractor and to give us enough characters to exercise offset-based pagination cleanly.</p>
+<h2>Multi-Head Attention</h2>
+<p>Instead of performing a single attention function, we linearly project the queries, keys, and values several times with different learned projections. Multi-head attention allows the model to jointly attend to information from different representation subspaces at different positions, which is a core idea behind the transformer architecture.</p>
+</article>
+<footer>Copyright 2020 — FOOTER_BOILERPLATE_SHOULD_BE_STRIPPED</footer>
+</body>
+</html>

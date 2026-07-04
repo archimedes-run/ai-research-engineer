@@ -157,11 +157,52 @@ def _truncate_content(content: str, max_content_length: int) -> str:
     return truncated + warning
 
 
+def _extract_readable_markdown(text: str) -> Optional[str]:
+    """Extract the readable article as markdown (S1-3, via trafilatura).
+
+    Returns ``None`` when the input isn't HTML or nothing readable is found, so
+    the caller can fall back to the raw text.
+    """
+    if "<" not in text:  # not HTML — nothing to extract
+        return None
+    try:
+        import trafilatura
+
+        return trafilatura.extract(
+            text,
+            output_format="markdown",
+            include_tables=True,
+            include_formatting=True,
+            favor_recall=True,
+        )
+    except Exception:
+        return None
+
+
+def _paginate(content: str, offset: int, max_content_length: int) -> str:
+    """Return the ``[offset : offset+max_content_length]`` window, with a
+    continuation hint when more content remains (S1-3 pagination)."""
+    total = len(content)
+    if offset < 0:
+        offset = 0
+    if offset >= total:
+        return f"[No more content: offset {offset:,} is past the end ({total:,} characters).]"
+    window = content[offset : offset + max_content_length]
+    next_offset = offset + max_content_length
+    if next_offset < total:
+        window += (
+            f"\n\n[More content available: {total:,} characters total. "
+            f"Call again with offset={next_offset} to continue.]"
+        )
+    return window
+
+
 def fetch_url(
     url: str,
     timeout: int = 30,
     user_agent: Optional[str] = None,
-    max_content_length: int = 10000,
+    max_content_length: int = 25000,
+    offset: int = 0,
 ) -> str:
     """
     Fetch content from a URL using HTTP GET.
@@ -250,8 +291,9 @@ def fetch_url(
                 continue
 
             response.raise_for_status()
-            content = _truncate_content(response.text, max_content_length)
-            return content
+            # Extract readable markdown (fall back to the raw body), then page it.
+            content = _extract_readable_markdown(response.text) or response.text
+            return _paginate(content, offset, max_content_length)
 
         return "Error: Too many redirects"
 

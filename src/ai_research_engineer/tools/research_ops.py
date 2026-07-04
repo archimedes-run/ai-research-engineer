@@ -29,23 +29,50 @@ logger = logging.getLogger(__name__)
 
 
 
+# Common words dropped when turning a natural-language query into the findpapers DSL.
+_FINDPAPERS_STOPWORDS = {
+    "a", "an", "the", "of", "for", "to", "in", "on", "and", "or", "with", "using",
+    "via", "based", "we", "our", "this", "that", "is", "are", "how", "what",
+    "does", "do", "from", "by", "as", "at", "its", "into", "over", "about",
+}
+
+# Detected synonyms -> emit an OR group so either term matches.
+_FINDPAPERS_SYNONYMS = {
+    "optimization": ["optimisation"],
+    "rl": ["reinforcement learning"],
+    "cnn": ["convolutional neural network"],
+    "llm": ["large language model"],
+    "nlp": ["natural language processing"],
+}
+
+
 def _to_findpapers_query(query: str) -> str:
     """Convert a natural-language query into a valid findpapers boolean query.
 
-    findpapers requires its own DSL: terms wrapped in ``[ ]`` and joined by
-    AND/OR (e.g. ``[dropout] AND [regularization]``). A raw title string —
-    especially one containing ``:`` — is rejected with "Invalid query format".
-    If the caller already used the DSL (contains ``[``), pass it through.
+    findpapers requires its own DSL: terms wrapped in ``[ ]`` joined by AND/OR
+    (e.g. ``[dropout] AND [regularization]``). We split the query into keywords,
+    drop stopwords, and emit ``[kw1] AND [kw2] ...`` — with ``([kw] OR [syn])``
+    OR-groups for detected synonyms. A DSL query (already contains ``[``) passes
+    through unchanged.
     """
     q = (query or "").strip()
     if "[" in q and "]" in q:
         return q
-    # Strip characters that break the findpapers parser, collapse whitespace.
-    cleaned = re.sub(r'[:()\[\]"\']', " ", q)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    if not cleaned:
+
+    tokens = re.findall(r"[A-Za-z0-9\-]+", q.lower())
+    keywords = [t for t in tokens if t not in _FINDPAPERS_STOPWORDS]
+    if not keywords:
         return "[research]"
-    return f"[{cleaned}]"
+
+    groups = []
+    for kw in keywords:
+        synonyms = _FINDPAPERS_SYNONYMS.get(kw)
+        if synonyms:
+            alternatives = " OR ".join(f"[{term}]" for term in [kw, *synonyms])
+            groups.append(f"({alternatives})")
+        else:
+            groups.append(f"[{kw}]")
+    return " AND ".join(groups)
 
 
 def omni_search_papers(query: str, limit: int = 10) -> str:
