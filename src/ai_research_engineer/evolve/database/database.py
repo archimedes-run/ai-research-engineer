@@ -7,8 +7,8 @@ from typing import Any, Dict, List, Optional
 
 from ..utils.structures import Node
 from .algorithms import BaseSampler, get_sampler
-from .faiss_index import FAISSIndex
-from .embedding import EmbeddingService
+from ai_research_engineer.core.embedding import EmbeddingService
+from ai_research_engineer.core.faiss_index import FAISSIndex
 
 
 class Database:

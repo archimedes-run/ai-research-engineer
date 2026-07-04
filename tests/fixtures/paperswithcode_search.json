@@ -1,0 +1,35 @@
+{
+  "count": 2,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "paper": {
+        "id": "bert-pre-training-of-deep-bidirectional",
+        "title": "BERT: Pre-training of Deep Bidirectional Transformers",
+        "url_abs": "https://arxiv.org/abs/1810.04805",
+        "published": "2018-10-11"
+      },
+      "repository": {
+        "url": "https://github.com/google-research/bert",
+        "stars": 37000,
+        "framework": "tf"
+      },
+      "is_official": true
+    },
+    {
+      "paper": {
+        "id": "deep-residual-learning-for-image-recognition",
+        "title": "Deep Residual Learning for Image Recognition",
+        "url_abs": "https://arxiv.org/abs/1512.03385",
+        "published": "2015-12-10"
+      },
+      "repository": {
+        "url": "https://github.com/KaimingHe/deep-residual-networks",
+        "stars": 6100,
+        "framework": "none"
+      },
+      "is_official": true
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+# Archimedes configuration (S1-6).
+#
+# Every value here can be overridden per-run by an environment variable.
+# Resolution order is: env var > this file > built-in default. Deleting this
+# file is safe — the system falls back to the defaults shown below.
+# See docs/tools_configuration.md for the full reference.
+
+search:
+  # Web-search provider: tavily | brave | searxng | none.
+  # web_search is only added to the toolbelt when a real provider is selected
+  # AND its credential env var is set (TAVILY_API_KEY / BRAVE_API_KEY /
+  # SEARXNG_URL). Env override: SEARCH_WEB_PROVIDER.
+  web_provider: none
+
+embeddings:
+  # SentenceTransformers model id for the shared embedding substrate.
+  # Env override: EMBEDDINGS_MODEL.
+  model: sentence-transformers/all-MiniLM-L6-v2
+
+ingestion:
+  # PDF -> markdown engine for paper ingestion. Env override: INGESTION_PDF_ENGINE.
+  pdf_engine: pymupdf4llm

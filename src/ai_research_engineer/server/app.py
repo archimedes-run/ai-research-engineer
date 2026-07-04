@@ -553,6 +553,60 @@ async def get_session_paper_pdf(session_id: str, _: None = Security(_require_tok
     return FileResponse(pdf_path, media_type="application/pdf", filename="research_paper.pdf")
 
 
+@app.get("/api/sessions/{session_id}/graphs")
+async def list_session_graphs(session_id: str):
+    """List the persisted citation graphs for a run (S1-7).
+
+    Read-only and resilient: returns [] when the run has no graphs yet. Each
+    entry carries lightweight metadata so the UI can build a picker without
+    downloading every graph.
+    """
+    session = RunStore.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    graphs_dir = RunStore.DATA_DIR / "runs" / session_id / "knowledge_base" / "graphs"
+    if not graphs_dir.is_dir():
+        return []
+
+    out: List[dict] = []
+    for f in sorted(graphs_dir.glob("*.json")):
+        entry = {"name": f.name, "size": f.stat().st_size, "modified": f.stat().st_mtime}
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            entry["node_count"] = data.get("node_count", len(data.get("nodes", [])))
+            entry["edge_count"] = data.get("edge_count", len(data.get("edges", [])))
+            entry["seeds"] = data.get("seeds", [])
+        except Exception:
+            # Corrupt/unreadable graph — list it but flag the metadata as unknown.
+            entry["node_count"] = None
+            entry["edge_count"] = None
+        out.append(entry)
+    return out
+
+
+@app.get("/api/sessions/{session_id}/graphs/{name}")
+async def get_session_graph(session_id: str, name: str):
+    """Serve a single persisted citation-graph JSON by filename (S1-7)."""
+    session = RunStore.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # ``name`` must be a bare filename (the ``{name}`` route param never contains
+    # a slash), and we reject traversal / non-JSON explicitly.
+    if "/" in name or "\\" in name or ".." in name or not name.endswith(".json"):
+        raise HTTPException(status_code=403, detail="Invalid graph name")
+
+    graph_path = RunStore.DATA_DIR / "runs" / session_id / "knowledge_base" / "graphs" / name
+    if not graph_path.is_file():
+        raise HTTPException(status_code=404, detail="Graph not found")
+
+    try:
+        return json.loads(graph_path.read_text(encoding="utf-8"))
+    except Exception:
+        raise HTTPException(status_code=422, detail="Graph file is not valid JSON")
+
+
 @app.get("/api/sessions/{session_id}/stream")
 async def stream_session(
     session_id: str,

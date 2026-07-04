@@ -29,23 +29,50 @@ logger = logging.getLogger(__name__)
 
 
 
+# Common words dropped when turning a natural-language query into the findpapers DSL.
+_FINDPAPERS_STOPWORDS = {
+    "a", "an", "the", "of", "for", "to", "in", "on", "and", "or", "with", "using",
+    "via", "based", "we", "our", "this", "that", "is", "are", "how", "what",
+    "does", "do", "from", "by", "as", "at", "its", "into", "over", "about",
+}
+
+# Detected synonyms -> emit an OR group so either term matches.
+_FINDPAPERS_SYNONYMS = {
+    "optimization": ["optimisation"],
+    "rl": ["reinforcement learning"],
+    "cnn": ["convolutional neural network"],
+    "llm": ["large language model"],
+    "nlp": ["natural language processing"],
+}
+
+
 def _to_findpapers_query(query: str) -> str:
     """Convert a natural-language query into a valid findpapers boolean query.
 
-    findpapers requires its own DSL: terms wrapped in ``[ ]`` and joined by
-    AND/OR (e.g. ``[dropout] AND [regularization]``). A raw title string —
-    especially one containing ``:`` — is rejected with "Invalid query format".
-    If the caller already used the DSL (contains ``[``), pass it through.
+    findpapers requires its own DSL: terms wrapped in ``[ ]`` joined by AND/OR
+    (e.g. ``[dropout] AND [regularization]``). We split the query into keywords,
+    drop stopwords, and emit ``[kw1] AND [kw2] ...`` — with ``([kw] OR [syn])``
+    OR-groups for detected synonyms. A DSL query (already contains ``[``) passes
+    through unchanged.
     """
     q = (query or "").strip()
     if "[" in q and "]" in q:
         return q
-    # Strip characters that break the findpapers parser, collapse whitespace.
-    cleaned = re.sub(r'[:()\[\]"\']', " ", q)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    if not cleaned:
+
+    tokens = re.findall(r"[A-Za-z0-9\-]+", q.lower())
+    keywords = [t for t in tokens if t not in _FINDPAPERS_STOPWORDS]
+    if not keywords:
         return "[research]"
-    return f"[{cleaned}]"
+
+    groups = []
+    for kw in keywords:
+        synonyms = _FINDPAPERS_SYNONYMS.get(kw)
+        if synonyms:
+            alternatives = " OR ".join(f"[{term}]" for term in [kw, *synonyms])
+            groups.append(f"({alternatives})")
+        else:
+            groups.append(f"[{kw}]")
+    return " AND ".join(groups)
 
 
 def omni_search_papers(query: str, limit: int = 10) -> str:
@@ -88,112 +115,221 @@ def omni_search_papers(query: str, limit: int = 10) -> str:
         return f"Error in Omni-Search: {e}. Tip: use semantic_search_papers or arxiv_search_papers for keyword queries."
 
 
-def build_citation_graph(paper_id: str, working_dir: str) -> str:
+# Semantic Scholar fields needed to rank neighbors by influence and recency.
+_GRAPH_FIELDS = [
+    "title", "year", "influentialCitationCount",
+    "references.title", "references.paperId", "references.year",
+    "references.influentialCitationCount",
+    "citations.title", "citations.paperId", "citations.year",
+    "citations.influentialCitationCount",
+]
+
+# Above this many nodes the full JSON is too large to inline for the LLM; we
+# return a compact summary + the on-disk path instead.
+_GRAPH_INLINE_NODE_LIMIT = 60
+
+
+def _normalize_seed_id(paper_id: str) -> str:
+    """Auto-fix a bare arXiv id (e.g. ``1706.03762``) into Semantic Scholar's
+    ``ARXIV:<id>`` form; pass everything else through untouched."""
+    if re.match(r"^\d{4}\.\d{4,5}(v\d+)?$", paper_id):
+        return f"ARXIV:{paper_id.split('v')[0]}"
+    return paper_id
+
+
+def _neighbor_rank_key(item):
+    """Sort key: (influentialCitationCount, recency), each defaulting to 0."""
+    infl = getattr(item, "influentialCitationCount", None) or 0
+    year = getattr(item, "year", None) or 0
+    return (infl, year)
+
+
+def _rank_neighbors(items: list) -> list:
+    """Rank a neighbor list by influence then recency, descending.
+
+    Applied BEFORE truncation to ``per_node_limit`` so the cap keeps the most
+    influential and recent neighbors — not an arbitrary API-order prefix.
     """
-    Builds a structured JSON citation graph including cross-connections
-    between the target paper's references and citations (like Consensus).
+    return sorted(items, key=_neighbor_rank_key, reverse=True)
+
+
+def _annotate_similarity(nodes: dict, query_text: str) -> None:
+    """Annotate every node with its cosine similarity to ``query_text`` using the
+    shared core embeddings (single batched call)."""
+    import numpy as np
+
+    from ai_research_engineer.core.embeddings import embed_texts
+
+    ids = list(nodes.keys())
+    titles = [nodes[i].get("label") or "" for i in ids]
+    vecs = embed_texts([query_text] + titles)
+    q = vecs[0]
+    q_norm = float(np.linalg.norm(q)) or 1.0
+    for offset, node_id in enumerate(ids):
+        v = vecs[offset + 1]
+        v_norm = float(np.linalg.norm(v)) or 1.0
+        nodes[node_id]["similarity"] = round(float(np.dot(q, v)) / (q_norm * v_norm), 4)
+
+
+def build_citation_graph(
+    seed_ids,
+    working_dir: str,
+    hops: int = 2,
+    per_node_limit: int = 25,
+    query_text: Optional[str] = None,
+) -> str:
+    """Citation graph v2 (S1-4): multi-seed, ranked-before-truncation.
+
+    Parameters
+    ----------
+    seed_ids:
+        One paper id (``str``, backward compatible) or a list of ids. Multiple
+        seeds are unioned into one graph; a neighbor shared by two seeds appears
+        exactly once.
+    working_dir:
+        Workspace root; the graph is persisted under
+        ``knowledge_base/graphs/graph_<timestamp>.json``.
+    hops:
+        How many expansion rounds outward from the seeds.
+    per_node_limit:
+        Max neighbors kept per node, applied AFTER ranking each node's neighbors
+        by ``(influentialCitationCount, recency)``.
+    query_text:
+        If given, every node is annotated with its cosine similarity to this text
+        via the core embeddings.
+
+    Above 60 nodes a compact summary + the file path is returned instead of the
+    full JSON dump.
     """
-    import json
-    import re
-    from pathlib import Path
-    
-    logger.info(f"[Tool:build_citation_graph] Mapping ecosystem for {paper_id}")
+    seeds = [seed_ids] if isinstance(seed_ids, str) else list(seed_ids)
+    seeds = [_normalize_seed_id(s) for s in seeds]
+    logger.info(
+        f"[Tool:build_citation_graph] Mapping ecosystem for {len(seeds)} seed(s), "
+        f"hops={hops}, per_node_limit={per_node_limit}"
+    )
     try:
-        # 1. Auto-fix bare arXiv IDs for Semantic Scholar
-        if re.match(r'^\d{4}\.\d{4,5}(v\d+)?$', paper_id):
-            paper_id = f"ARXIV:{paper_id.split('v')[0]}" 
+        nodes: dict = {}
+        edges: list = []
+        edge_set = set()
 
-        # 2. Fetch the target paper
-        enforce_rate_limit()
-        p = sch.get_paper(
-            paper_id,
-            fields=['title', 'year', 'references.title', 'references.paperId', 'references.year', 
-                    'citations.title', 'citations.paperId', 'citations.year']
-        )
-        
-        target_id = p.paperId
-        safe_title = getattr(p, 'title', 'Unknown Title') or 'Unknown Title'
-        target_year = getattr(p, 'year', 2024) or 2024
-        
-        nodes = {}
-        edges = []
-        
-        # Add target node
-        nodes[target_id] = {
-            "id": target_id,
-            "label": safe_title,
-            "year": target_year,
-            "group": "target"
-        }
-        
-        # 3. Extract References (Ancestors)
-        refs = getattr(p, 'references', [])
-        ref_ids = []
-        if refs:
-            for ref in refs[:30]:  # Top 30 references
-                pid = getattr(ref, 'paperId', None)
-                if not pid: continue
-                title = getattr(ref, 'title', 'Unknown Title') or 'Unknown Title'
-                year = getattr(ref, 'year', None)
-                
-                nodes[pid] = {"id": pid, "label": title, "year": year, "group": "ancestor"}
-                edges.append({"source": pid, "target": target_id}) # Ref -> Target
-                ref_ids.append(pid)
-                
-        # 4. Extract Citations (Descendants)
-        cites = getattr(p, 'citations', [])
-        cite_ids = []
-        if cites:
-            for cite in cites[:20]:  # Top 20 citations
-                pid = getattr(cite, 'paperId', None)
-                if not pid: continue
-                title = getattr(cite, 'title', 'Unknown Title') or 'Unknown Title'
-                year = getattr(cite, 'year', None)
-                
-                nodes[pid] = {"id": pid, "label": title, "year": year, "group": "descendant"}
-                edges.append({"source": target_id, "target": pid}) # Target -> Cite
-                cite_ids.append(pid)
-                
-        # 5. FIND CROSS-CONNECTIONS! (The Consensus Magic)
-        # We do ONE batch call to see if any of our 50 neighbors cite each other
-        all_neighbor_ids = ref_ids + cite_ids
-        if all_neighbor_ids:
-            try:
+        def _add_node(pid, label, year, group, infl):
+            if pid not in nodes:
+                nodes[pid] = {
+                    "id": pid,
+                    "label": label or "Unknown Title",
+                    "year": year,
+                    "group": group,
+                    "influential_citations": infl or 0,
+                }
+            elif group == "seed":
+                nodes[pid]["group"] = "seed"  # a seed label always wins
+
+        def _add_edge(src, dst):
+            key = (src, dst)
+            if src != dst and key not in edge_set:
+                edge_set.add(key)
+                edges.append({"source": src, "target": dst})
+
+        seed_set = set(seeds)
+        frontier = list(dict.fromkeys(seeds))  # unique, order-preserving
+        visited = set()
+
+        for _hop in range(max(1, hops)):
+            next_frontier = []
+            for node_id in frontier:
+                if node_id in visited:
+                    continue
+                visited.add(node_id)
                 enforce_rate_limit()
-                neighbors_data = sch.get_papers(all_neighbor_ids, fields=['citations.paperId'])
-                for neighbor in neighbors_data:
-                    if not neighbor: continue
-                    n_id = neighbor.paperId
-                    n_cites = getattr(neighbor, 'citations', [])
-                    if n_cites:
-                        for c in n_cites:
-                            c_id = getattr(c, 'paperId', None)
-                            # If this neighbor cites another paper in our graph, draw an edge!
-                            if c_id and c_id in nodes and c_id != target_id:
-                                edges.append({"source": n_id, "target": c_id})
-            except Exception as batch_e:
-                logger.warning(f"[Tool:build_citation_graph] Could not fetch cross-connections: {batch_e}")
+                try:
+                    p = sch.get_paper(node_id, fields=_GRAPH_FIELDS)
+                except Exception as fetch_e:
+                    logger.warning(
+                        f"[Tool:build_citation_graph] fetch failed for {node_id}: {fetch_e}"
+                    )
+                    continue
+                if not p:
+                    continue
 
-        # 6. Format Final JSON
+                pid = getattr(p, "paperId", None) or node_id
+                group = "seed" if node_id in seed_set else nodes.get(pid, {}).get("group", "neighbor")
+                _add_node(
+                    pid,
+                    getattr(p, "title", None),
+                    getattr(p, "year", None),
+                    group,
+                    getattr(p, "influentialCitationCount", None),
+                )
+
+                # References (ancestors) and citations (descendants): rank each
+                # list, THEN truncate to the per-node budget.
+                refs = _rank_neighbors(list(getattr(p, "references", None) or []))[:per_node_limit]
+                for ref in refs:
+                    rid = getattr(ref, "paperId", None)
+                    if not rid:
+                        continue
+                    _add_node(rid, getattr(ref, "title", None), getattr(ref, "year", None),
+                              "ancestor", getattr(ref, "influentialCitationCount", None))
+                    _add_edge(rid, pid)  # ancestor -> node
+                    if rid not in visited:
+                        next_frontier.append(rid)
+
+                cites = _rank_neighbors(list(getattr(p, "citations", None) or []))[:per_node_limit]
+                for cite in cites:
+                    cid = getattr(cite, "paperId", None)
+                    if not cid:
+                        continue
+                    _add_node(cid, getattr(cite, "title", None), getattr(cite, "year", None),
+                              "descendant", getattr(cite, "influentialCitationCount", None))
+                    _add_edge(pid, cid)  # node -> descendant
+                    if cid not in visited:
+                        next_frontier.append(cid)
+            frontier = next_frontier
+
+        if query_text:
+            _annotate_similarity(nodes, query_text)
+
         graph_data = {
+            "seeds": list(seeds),
+            "hops": hops,
+            "node_count": len(nodes),
+            "edge_count": len(edges),
             "nodes": list(nodes.values()),
-            "edges": edges
+            "edges": edges,
         }
-        
         json_str = json.dumps(graph_data, indent=2)
-        
-        # Save to disk
+
+        graph_path = None
         if working_dir:
-            safe_id = paper_id.replace(':', '_').replace('/', '_')
-            graph_path = Path(working_dir) / "knowledge_base" / f"citation_graph_{safe_id[:15]}.json"
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            graph_path = Path(working_dir) / "knowledge_base" / "graphs" / f"graph_{ts}.json"
             graph_path.parent.mkdir(parents=True, exist_ok=True)
-            graph_path.write_text(json_str, encoding='utf-8')
-            
-            # We return the JSON string directly to the LLM. It's incredibly token-dense and easy to read.
-            return f"Citation graph built with cross-connections and saved to {graph_path.name}:\n\n{json_str}"
-            
+            graph_path.write_text(json_str, encoding="utf-8")
+
+        # Above the inline limit, return a compact summary instead of the dump.
+        if len(nodes) > _GRAPH_INLINE_NODE_LIMIT:
+            groups: dict = {}
+            for n in nodes.values():
+                groups[n["group"]] = groups.get(n["group"], 0) + 1
+            summary = {
+                "seeds": list(seeds),
+                "hops": hops,
+                "node_count": len(nodes),
+                "edge_count": len(edges),
+                "group_breakdown": groups,
+                "graph_path": str(graph_path) if graph_path else None,
+            }
+            saved = graph_path.name if graph_path else "N/A"
+            return (
+                f"Citation graph built: {len(nodes)} nodes, {len(edges)} edges "
+                f"(too large to inline). Saved to {saved}.\n\n"
+                + json.dumps(summary, indent=2)
+            )
+
+        if graph_path:
+            return f"Citation graph built and saved to {graph_path.name}:\n\n{json_str}"
         return json_str
-        
+
     except Exception as e:
         return f"Error building citation graph: {e}"
 
@@ -341,48 +477,5 @@ def list_papers(working_dir: str) -> str:
     return json.dumps({"downloaded_papers": papers}, indent=2)
 
 
-def read_paper(paper_id: str, working_dir: str) -> str:
-    """
-    Read the full text of a locally downloaded paper in markdown. 
-    Requires download_paper to be called first.
-    """
-    try:
-        work_path = Path(working_dir).resolve()
-        html_path = work_path / "literature" / f"{paper_id}.html"
-        pdf_path = work_path / "literature" / f"{paper_id}.pdf"
-        
-        # Parse HTML if it exists
-        if html_path.exists():
-            html_content = html_path.read_text(encoding='utf-8')
-            # Strip tags to create basic markdown-friendly text
-            text = re.sub(r'<style.*?</style>', '', html_content, flags=re.DOTALL)
-            text = re.sub(r'<script.*?</script>', '', text, flags=re.DOTALL)
-            text = re.sub(r'<[^>]+>', ' ', text)
-            text = re.sub(r'\n\s*\n', '\n\n', text).strip()
-            
-            if len(text) > 40000:
-                text = text[:40000] + "\n\n...[TRUNCATED DUE TO LENGTH]..."
-            return text
-            
-        # Parse PDF if HTML doesn't exist
-        elif pdf_path.exists():
-            try:
-                import PyPDF2
-                text = []
-                with open(pdf_path, 'rb') as f:
-                    reader = PyPDF2.PdfReader(f)
-                    for page in reader.pages:
-                        text.append(page.extract_text())
-                        
-                full_text = "\n\n".join(text)
-                if len(full_text) > 40000:
-                    full_text = full_text[:40000] + "\n\n...[TRUNCATED DUE TO LENGTH]..."
-                return full_text
-            except ImportError:
-                return "Error: PyPDF2 is required to read PDFs. Please run `uv add PyPDF2` in your terminal to extract text."
-                
-        else:
-            return f"Error: Paper {paper_id} not found locally. Call download_paper first."
-            
-    except Exception as e:
-        return f"Error reading paper: {e}"
+# read_paper moved to tools/ingestion.py (S1-2): section-aware ingestion with no
+# length-capped truncation, replacing the old regex tag-stripper and blob path.

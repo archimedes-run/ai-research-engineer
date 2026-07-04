@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><title>A Sample Paper for Ingestion Tests</title>
+<style>.hidden{display:none}</style>
+<script>console.log("should be stripped");</script>
+</head>
+<body>
+<h1 class="ltx_title ltx_title_document">A Sample Paper for Ingestion Tests</h1>
+
+<div class="ltx_abstract">
+  <h2 class="ltx_title ltx_title_abstract">Abstract</h2>
+  <p class="ltx_p">We present a simple method. The learning rate was set to 0.001 and we trained for 100 epochs. This abstract exists to be found in TOC mode.</p>
+</div>
+
+<section class="ltx_section" id="S1">
+  <h2 class="ltx_title ltx_title_section">1 Introduction</h2>
+  <p class="ltx_p">Deep learning has advanced rapidly. Our objective minimizes the loss
+  <math alttext="\mathcal{L} = -\sum_i y_i \log \hat{y}_i">L</math>
+  over the training set.</p>
+</section>
+
+<section class="ltx_section" id="S2">
+  <h2 class="ltx_title ltx_title_section">2 Method</h2>
+  <p class="ltx_p">We use a transformer encoder. The unique marker PLANTED_UNIQUE_TOKEN_XYZ appears in this method section so retrieval can be checked.</p>
+  <table class="ltx_tabular">
+    <tr><th>Model</th><th>Accuracy</th></tr>
+    <tr><td>Baseline</td><td>0.72</td></tr>
+    <tr><td>Ours</td><td>0.91</td></tr>
+  </table>
+</section>
+
+<section class="ltx_section" id="S3">
+  <h2 class="ltx_title ltx_title_section">3 Experiments</h2>
+  <p class="ltx_p">We train for 100 epochs with a batch size of 64 and a learning rate of 0.001. Final test accuracy reaches 91% on the benchmark.</p>
+</section>
+</body>
+</html>

@@ -1,0 +1,146 @@
+{
+  "generated_at": "2026-07-04T03:34:02",
+  "mode": "live",
+  "elapsed_s": 295.6,
+  "n_papers": 15,
+  "sections_extracted": 15,
+  "answerable_le_2_calls": 15,
+  "total_truncation_events": 0,
+  "rows": [
+    {
+      "paper_id": "1706.03762",
+      "sections": 33,
+      "answerable": true,
+      "calls": 1,
+      "truncation_events": 0,
+      "mode": "live",
+      "error": null
+    },
+    {
+      "paper_id": "1810.04805",
+      "sections": 49,
+      "answerable": true,
+      "calls": 1,
+      "truncation_events": 0,
+      "mode": "live",
+      "error": null
+    },
+    {
+      "paper_id": "1512.03385",
+      "sections": 22,
+      "answerable": true,
+      "calls": 1,
+      "truncation_events": 0,
+      "mode": "live",
+      "error": null
+    },
+    {
+      "paper_id": "1409.1556",
+      "sections": 26,
+      "answerable": true,
+      "calls": 1,
+      "truncation_events": 0,
+      "mode": "live",
+      "error": null
+    },
+    {
+      "paper_id": "2005.14165",
+      "sections": 46,
+      "answerable": true,
+      "calls": 1,
+      "truncation_events": 0,
+      "mode": "live",
+      "error": null
+    },
+    {
+      "paper_id": "1412.6980",
+      "sections": 2,
+      "answerable": true,
+      "calls": 1,
+      "truncation_events": 0,
+      "mode": "live",
+      "error": null
+    },
+    {
+      "paper_id": "1406.2661",
+      "sections": 15,
+      "answerable": true,
+      "calls": 1,
+      "truncation_events": 0,
+      "mode": "live",
+      "error": null
+    },
+    {
+      "paper_id": "1312.6114",
+      "sections": 22,
+      "answerable": true,
+      "calls": 1,
+      "truncation_events": 0,
+      "mode": "live",
+      "error": null
+    },
+    {
+      "paper_id": "2006.11239",
+      "sections": 17,
+      "answerable": true,
+      "calls": 1,
+      "truncation_events": 0,
+      "mode": "live",
+      "error": null
+    },
+    {
+      "paper_id": "1905.11946",
+      "sections": 16,
+      "answerable": true,
+      "calls": 1,
+      "truncation_events": 0,
+      "mode": "live",
+      "error": null
+    },
+    {
+      "paper_id": "2010.11929",
+      "sections": 39,
+      "answerable": true,
+      "calls": 1,
+      "truncation_events": 0,
+      "mode": "live",
+      "error": null
+    },
+    {
+      "paper_id": "1502.03167",
+      "sections": 19,
+      "answerable": true,
+      "calls": 1,
+      "truncation_events": 0,
+      "mode": "live",
+      "error": null
+    },
+    {
+      "paper_id": "1301.3781",
+      "sections": 26,
+      "answerable": true,
+      "calls": 1,
+      "truncation_events": 0,
+      "mode": "live",
+      "error": null
+    },
+    {
+      "paper_id": "1608.06993",
+      "sections": 12,
+      "answerable": true,
+      "calls": 1,
+      "truncation_events": 0,
+      "mode": "live",
+      "error": null
+    },
+    {
+      "paper_id": "1611.03530",
+      "sections": 21,
+      "answerable": true,
+      "calls": 1,
+      "truncation_events": 0,
+      "mode": "live",
+      "error": null
+    }
+  ]
+}

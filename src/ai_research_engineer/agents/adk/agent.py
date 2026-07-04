@@ -543,6 +543,7 @@ def create_agent(
         download_paper,
         list_arxiv_papers,
         read_paper,
+        search_paper,
         omni_search_papers,
         build_citation_graph,
         # Code Graph Tools
@@ -615,11 +616,27 @@ def create_agent(
     def list_arxiv_papers_bound() -> str:
         return list_arxiv_papers(working_dir_str)
         
-    def read_paper_bound(paper_id: str) -> str:
-        return read_paper(paper_id, working_dir_str)
+    def read_paper_bound(paper_id: str, section: Optional[str] = None) -> str:
+        """Read a downloaded paper. With `section`, return only that section (fuzzy
+        title match); without, return a table of contents + abstract + first section."""
+        return read_paper(paper_id, working_dir_str, section)
 
-    def build_citation_graph_bound(paper_id: str) -> str:
-        return build_citation_graph(paper_id, working_dir_str)
+    def search_paper_bound(paper_id: str, query: str, top_k: int = 5) -> str:
+        """Semantic search within a single downloaded paper's sections; returns the top_k matching chunks."""
+        return search_paper(paper_id, query, working_dir_str, top_k)
+
+    def build_citation_graph_bound(
+        seed_ids: list[str],
+        hops: int = 2,
+        per_node_limit: int = 25,
+        query_text: Optional[str] = None,
+    ) -> str:
+        """Build a multi-seed citation graph. Neighbors are ranked by influence and
+        recency before truncation; pass query_text to annotate nodes with similarity."""
+        return build_citation_graph(
+            seed_ids, working_dir_str, hops=hops,
+            per_node_limit=per_node_limit, query_text=query_text,
+        )
 
     # --- Code Graph Tool Bindings ---
     def build_knowledge_graph_bound() -> str:
@@ -672,6 +689,7 @@ def create_agent(
         download_paper_bound,
         list_arxiv_papers_bound,
         read_paper_bound,
+        search_paper_bound,
         omni_search_papers,          # No workspace needed
         build_citation_graph_bound,
         
@@ -689,6 +707,21 @@ def create_agent(
     # Only add fetch_url if network access is not disabled
     if not is_network_disabled():
         tools.append(fetch_url)
+
+    # Activate this run's session literature index (S1-5). Search/ingest tools
+    # auto-upsert into it, and search_session_literature reads from it.
+    from ai_research_engineer.core.lit_index import get_lit_index
+    get_lit_index(working_dir_str)
+
+    # Stage 1 registry tools, built from the tool registry so each is included
+    # only when its requirements are met (e.g. web_search is absent unless a web
+    # provider is configured). Importing the tool modules registers them;
+    # available_tools() resolves availability once and returns the usable subset.
+    from ai_research_engineer.core.tool_registry import available_tools as _registry_available_tools
+    from ai_research_engineer.tools import lit_ops  # noqa: F401  (registers search_session_literature)
+    from ai_research_engineer.tools import search_ops  # noqa: F401  (registers S1-3 tools)
+
+    tools.extend(_registry_available_tools())
 
     # Add Graphify code-graph query tool when enabled and available
     if use_graphify:

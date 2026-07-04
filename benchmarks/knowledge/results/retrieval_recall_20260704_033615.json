@@ -1,0 +1,100 @@
+{
+  "generated_at": "2026-07-04T03:36:15",
+  "elapsed_s": 414.6,
+  "n_queries": 10,
+  "overall_recall_top10": "10/10",
+  "per_source_recall": {
+    "openalex": "8/10",
+    "paperswithcode": "0/10",
+    "semantic_scholar": "9/10"
+  },
+  "rows": [
+    {
+      "query": "neural sequence transduction based entirely on attention mechanisms",
+      "target": "attention is all you need",
+      "found": true,
+      "found_by": [
+        "openalex",
+        "semantic_scholar"
+      ]
+    },
+    {
+      "query": "deep bidirectional transformer pretraining for language understanding",
+      "target": "bert",
+      "found": true,
+      "found_by": [
+        "openalex",
+        "semantic_scholar"
+      ]
+    },
+    {
+      "query": "residual learning framework to train very deep image recognition networks",
+      "target": "deep residual learning for image recognition",
+      "found": true,
+      "found_by": [
+        "openalex",
+        "semantic_scholar"
+      ]
+    },
+    {
+      "query": "generative adversarial networks with a generator and a discriminator",
+      "target": "generative adversarial",
+      "found": true,
+      "found_by": [
+        "openalex",
+        "semantic_scholar"
+      ]
+    },
+    {
+      "query": "adaptive moment estimation method for stochastic optimization",
+      "target": "adam",
+      "found": true,
+      "found_by": [
+        "semantic_scholar"
+      ]
+    },
+    {
+      "query": "scaling language models to 175 billion parameters enables few-shot learning",
+      "target": "language models are few-shot learners",
+      "found": true,
+      "found_by": [
+        "semantic_scholar"
+      ]
+    },
+    {
+      "query": "denoising diffusion probabilistic models for image synthesis",
+      "target": "denoising diffusion probabilistic models",
+      "found": true,
+      "found_by": [
+        "openalex",
+        "semantic_scholar"
+      ]
+    },
+    {
+      "query": "pure transformer applied to image patches for image recognition at scale",
+      "target": "an image is worth 16x16 words",
+      "found": true,
+      "found_by": [
+        "openalex",
+        "semantic_scholar"
+      ]
+    },
+    {
+      "query": "compound scaling of depth width and resolution for convolutional networks",
+      "target": "efficientnet",
+      "found": true,
+      "found_by": [
+        "openalex"
+      ]
+    },
+    {
+      "query": "reducing internal covariate shift with batch normalization",
+      "target": "batch normalization",
+      "found": true,
+      "found_by": [
+        "openalex",
+        "semantic_scholar"
+      ]
+    }
+  ]
+}

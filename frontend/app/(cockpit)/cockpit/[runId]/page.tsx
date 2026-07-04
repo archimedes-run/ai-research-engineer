@@ -969,14 +969,151 @@ function CodebaseTab({ runId, isTerminal, editingPath, session }: {
 // ---------------------------------------------------------------------------
 // Knowledge Graph placeholder (E.2)
 // ---------------------------------------------------------------------------
-function KnowledgeGraphTab() {
+// Literature map (S1-7) — read-only view of persisted citation-graph JSON.
+type LitGraphNode = {
+  id: string; label?: string; year?: number | null; group?: string
+  influential_citations?: number; similarity?: number
+}
+type LitGraphEdge = { source: string; target: string }
+type LitGraph = { seeds?: string[]; nodes?: LitGraphNode[]; edges?: LitGraphEdge[] }
+type LitGraphMeta = { name: string; node_count?: number | null; edge_count?: number | null; seeds?: string[] }
+
+// group -> column index (ancestors left, seed centre, descendants right, rest far right)
+const GRAPH_GROUP_COL: Record<string, number> = {
+  ancestor: 0, seed: 1, target: 1, descendant: 2, expanded: 3, neighbor: 3,
+}
+const GRAPH_GROUP_COLOR: Record<string, string> = {
+  ancestor: C.blue, seed: C.brand, target: C.brand, descendant: C.amber, expanded: C.muted, neighbor: C.muted,
+}
+function graphGroupColor(group?: string): string { return GRAPH_GROUP_COLOR[group ?? ''] ?? C.muted }
+
+function KnowledgeGraphTab({ runId }: { runId: string }) {
+  const [list, setList] = useState<LitGraphMeta[] | null>(null)
+  const [selected, setSelected] = useState<string | null>(null)
+  const [graph, setGraph] = useState<LitGraph | null>(null)
+  const [hover, setHover] = useState<LitGraphNode | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  // Poll the list so graphs appear as the run produces them.
+  useEffect(() => {
+    let alive = true
+    async function loadList() {
+      const res = await fetch(apiUrl(`/api/sessions/${runId}/graphs`), { headers: apiHeaders() }).catch(() => null)
+      if (!alive) return
+      if (!res || !res.ok) { setList([]); return }
+      const data: LitGraphMeta[] = await res.json().catch(() => [])
+      if (!alive) return
+      setList(data)
+      // Default to the most recent graph (list is sorted ascending by filename).
+      setSelected(prev => prev ?? (data.length ? data[data.length - 1].name : null))
+    }
+    loadList()
+    const id = setInterval(loadList, 5000)
+    return () => { alive = false; clearInterval(id) }
+  }, [runId])
+
+  // Load the selected graph.
+  useEffect(() => {
+    if (!selected) { setGraph(null); return }
+    let alive = true
+    setError(null)
+    fetch(apiUrl(`/api/sessions/${runId}/graphs/${selected}`), { headers: apiHeaders() })
+      .then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`)))
+      .then((data: LitGraph) => { if (alive) setGraph(data) })
+      .catch(() => { if (alive) { setGraph(null); setError('Could not load this graph.') } })
+    return () => { alive = false }
+  }, [runId, selected])
+
+  // Deterministic layered layout: column by group, spread vertically per column.
+  const layout = useMemo(() => {
+    const nodes = graph?.nodes ?? []
+    if (!nodes.length) return null
+    const W = 900, H = 560, PAD = 60
+    const cols: Record<number, LitGraphNode[]> = {}
+    nodes.forEach(n => {
+      const col = GRAPH_GROUP_COL[n.group ?? ''] ?? 3
+      ;(cols[col] ??= []).push(n)
+    })
+    const colKeys = Object.keys(cols).map(Number).sort((a, b) => a - b)
+    const maxInfl = Math.max(1, ...nodes.map(n => n.influential_citations ?? 0))
+    const pos: Record<string, { x: number; y: number; r: number; n: LitGraphNode }> = {}
+    colKeys.forEach((col, ci) => {
+      const colNodes = cols[col].slice().sort((a, b) => (b.influential_citations ?? 0) - (a.influential_citations ?? 0))
+      const x = colKeys.length > 1 ? PAD + (ci * (W - 2 * PAD)) / (colKeys.length - 1) : W / 2
+      colNodes.forEach((n, i) => {
+        const y = colNodes.length > 1 ? PAD + (i * (H - 2 * PAD)) / (colNodes.length - 1) : H / 2
+        const r = 6 + 16 * Math.sqrt((n.influential_citations ?? 0) / maxInfl)
+        pos[n.id] = { x, y, r, n }
+      })
+    })
+    const edges = (graph?.edges ?? []).filter(e => pos[e.source] && pos[e.target])
+    return { W, H, pos, edges, nodes }
+  }, [graph])
+
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-4" style={{ color: C.muted }}>
-      <div className="text-center max-w-sm">
-        <p className="text-sm font-semibold mb-1" style={{ color: C.text }}>Knowledge Graph</p>
-        <p className="text-xs leading-relaxed">A visual graph of concepts, citations, and relationships will appear here after the run completes.</p>
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Toolbar: graph picker + legend */}
+      <div className="flex items-center gap-3 px-5 py-3 border-b flex-wrap" style={{ borderColor: C.border }}>
+        <span className="text-xs uppercase tracking-widest" style={{ color: C.muted, fontFamily: 'var(--font-syne)' }}>Literature Map</span>
+        {list && list.length > 1 && (
+          <select value={selected ?? ''} onChange={e => setSelected(e.target.value)}
+            className="text-xs rounded-md border px-2 py-1" style={{ borderColor: C.border, background: C.surface, color: C.text }}>
+            {list.map(g => <option key={g.name} value={g.name}>{g.name} ({g.node_count ?? '?'} nodes)</option>)}
+          </select>
+        )}
+        <div className="flex items-center gap-3 ml-auto text-xs" style={{ color: C.muted }}>
+          {[['seed', 'Seed'], ['ancestor', 'Ancestor'], ['descendant', 'Descendant'], ['expanded', 'Expanded']].map(([g, label]) => (
+            <span key={g} className="inline-flex items-center gap-1.5">
+              <span className="inline-block rounded-full" style={{ width: 9, height: 9, background: graphGroupColor(g) }} />{label}
+            </span>
+          ))}
+        </div>
       </div>
-      <span className="text-xs px-3 py-1.5 rounded-full border" style={{ borderColor: C.border, color: C.muted }}>Coming in Phase E+</span>
+
+      {/* Canvas */}
+      <div className="flex-1 relative overflow-auto" style={{ background: C.bg }}>
+        {list === null && <div className="flex items-center justify-center h-full text-xs" style={{ color: C.muted }}>Loading…</div>}
+        {list !== null && list.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-center px-6" style={{ color: C.muted }}>
+            <p className="text-sm font-semibold" style={{ color: C.text }}>No citation graphs yet</p>
+            <p className="text-xs max-w-sm leading-relaxed">Once the agent builds a citation graph, it will be rendered here — nodes coloured by role and sized by influence.</p>
+          </div>
+        )}
+        {error && list && list.length > 0 && <div className="flex items-center justify-center h-full text-xs" style={{ color: C.brand }}>{error}</div>}
+        {layout && !error && (
+          <svg viewBox={`0 0 ${layout.W} ${layout.H}`} className="w-full h-full" style={{ maxHeight: '100%' }} preserveAspectRatio="xMidYMid meet">
+            {layout.edges.map((e, i) => {
+              const a = layout.pos[e.source], b = layout.pos[e.target]
+              return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={C.border2} strokeWidth={1} opacity={0.6} />
+            })}
+            {layout.nodes.map(n => {
+              const p = layout.pos[n.id]
+              if (!p) return null
+              const isHover = hover?.id === n.id
+              return (
+                <g key={n.id} onMouseEnter={() => setHover(n)} onMouseLeave={() => setHover(h => (h?.id === n.id ? null : h))} style={{ cursor: 'pointer' }}>
+                  <circle cx={p.x} cy={p.y} r={p.r} fill={graphGroupColor(n.group)} opacity={isHover ? 1 : 0.85}
+                    stroke={isHover ? C.text : '#fff'} strokeWidth={isHover ? 2 : 1} />
+                  <title>{`${n.label ?? n.id}${n.year ? ` (${n.year})` : ''}${typeof n.similarity === 'number' ? ` • sim ${n.similarity.toFixed(2)}` : ''}`}</title>
+                </g>
+              )
+            })}
+          </svg>
+        )}
+        {/* Hover detail chip */}
+        {hover && (
+          <div className="absolute bottom-3 left-3 right-3 rounded-lg border px-3 py-2 text-xs pointer-events-none"
+            style={{ borderColor: C.border, background: C.surface, color: C.text, maxWidth: 520 }}>
+            <div className="font-semibold truncate" style={{ color: C.text }}>{hover.label ?? hover.id}</div>
+            <div className="mt-0.5 flex gap-3 flex-wrap" style={{ color: C.muted }}>
+              {hover.year != null && <span>year {hover.year}</span>}
+              {hover.group && <span>{hover.group}</span>}
+              {typeof hover.influential_citations === 'number' && <span>{hover.influential_citations} influential citations</span>}
+              {typeof hover.similarity === 'number' && <span>similarity {hover.similarity.toFixed(2)}</span>}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -1198,7 +1335,7 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
     { id: 'activity', label: 'Activity' },
     { id: 'paper', label: 'Paper' },
     { id: 'files', label: 'Codebase' },
-    { id: 'graph', label: 'Knowledge Graph' },
+    { id: 'graph', label: 'Literature Map' },
     { id: 'inspector', label: 'Inspector' },
   ]
 
@@ -1291,7 +1428,7 @@ export default function RunPage({ params }: { params: Promise<{ runId: string }>
           {activeTab === 'activity' && <ActivityFeed events={events} isTerminal={isTerminal} />}
           {activeTab === 'paper' && <PaperViewer runId={runId} isTerminal={isTerminal} />}
           {activeTab === 'files' && <CodebaseTab runId={runId} isTerminal={isTerminal} editingPath={editingPath} session={session} />}
-          {activeTab === 'graph' && <KnowledgeGraphTab />}
+          {activeTab === 'graph' && <KnowledgeGraphTab runId={runId} />}
           {activeTab === 'inspector' && <InspectorTab treeData={treeData} />}
         </div>
 

@@ -1,0 +1,18 @@
+{
+  "total_count": 2,
+  "incomplete_results": false,
+  "items": [
+    {
+      "full_name": "google-research/bert",
+      "html_url": "https://github.com/google-research/bert",
+      "stargazers_count": 37000,
+      "description": "TensorFlow code and pre-trained models for BERT"
+    },
+    {
+      "full_name": "huggingface/transformers",
+      "html_url": "https://github.com/huggingface/transformers",
+      "stargazers_count": 130000,
+      "description": "State-of-the-art Machine Learning for PyTorch and TensorFlow"
+    }
+  ]
+}
