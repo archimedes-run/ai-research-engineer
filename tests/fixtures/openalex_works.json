@@ -7,16 +7,16 @@
       "doi": "https://doi.org/10.5555/3295222.3295349",
       "cited_by_count": 95000,
       "abstract_inverted_index": {
+        "on": [5, 11],
         "The": [0],
+        "attention": [6, 12],
         "dominant": [1],
-        "sequence": [2],
-        "transduction": [3],
-        "models": [4],
-        "are": [5],
-        "based": [6],
-        "on": [7],
-        "attention": [8],
-        "mechanisms.": [9]
+        "and": [7],
+        "models": [2, 9],
+        "the": [8],
+        "are": [3],
+        "rely": [10],
+        "based": [4]
       }
     },
     {

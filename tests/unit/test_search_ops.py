@@ -46,9 +46,29 @@ class TestOpenAlex:
         assert len(out) == 2
         assert out[0]["title"] == "Attention Is All You Need"
         assert out[0]["year"] == 2017
-        assert out[0]["abstract"] == "The dominant sequence transduction models are based on attention mechanisms."
+        # Full ordered reconstruction, incl. words at 2+ positions:
+        # models@[2,9], on@[5,11], attention@[6,12]. Scrambled key order in the
+        # fixture also proves the position sort. A naive "place each word once"
+        # impl would drop the second models/on/attention and fail this.
+        assert (
+            out[0]["abstract"]
+            == "The dominant models are based on attention and the models rely on attention"
+        )
         assert out[0]["cited_by_count"] == 95000
         assert out[0]["doi"].endswith("3295349")
+
+    def test_reconstruct_repeats_word_at_multiple_positions(self):
+        # Direct unit: "the" at [0, 3] must appear at BOTH positions, in order.
+        inv = {"the": [0, 3], "cat": [1], "sat": [2], "mat": [4]}
+        assert search_ops._reconstruct_inverted_abstract(inv) == "the cat sat the mat"
+
+    def test_reconstruction_bites_a_naive_one_position_impl(self):
+        # A naive impl that keeps only one position per word would collapse the
+        # repeated words; assert the fixture actually distinguishes the two.
+        inv = _load("openalex_works.json")["results"][0]["abstract_inverted_index"]
+        correct = search_ops._reconstruct_inverted_abstract(inv)
+        naive = " ".join(w for _, w in sorted((min(p), w) for w, p in inv.items()))
+        assert naive != correct  # the fixture has repeats, so it exercises the bug
 
     def test_empty_results(self):
         with patch(_GET, return_value=_resp({"results": []})):
