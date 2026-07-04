@@ -1,11 +1,18 @@
 """S2-7: novelty benchmark harness + datasets."""
 
+import re
 from pathlib import Path
 
 from benchmarks.novelty import run_novelty_bench as B
 
 
 _DATASETS = Path("benchmarks/novelty/datasets")
+
+
+def _shingles(text, n=8):
+    """Set of n-word verbatim spans (normalized: lowercased, alnum-only)."""
+    words = re.sub(r"[^a-z0-9]+", " ", (text or "").lower()).split()
+    return {" ".join(words[i : i + n]) for i in range(len(words) - n + 1)}
 
 
 # --------------------------------------------------------------------------- #
@@ -139,6 +146,33 @@ def test_ci_lite_end_to_end_plumbing():
     m = B.compute_metrics(run["results"])
     assert m["rejection_recall_known"] == 1.0
     assert m["false_rejection_rate_plausible"] == 0.0
+
+
+def test_no_verbatim_leakage_idea_vs_killing_abstract():
+    """Each KNOWN idea_description must PARAPHRASE — no 8-word verbatim span from
+    the killing work's abstract may appear in it. Rows without an abstract in the
+    row (code-only repos, and a few venues whose abstract isn't cleanly fetchable)
+    are skipped with a recorded reason."""
+    _, rows = B.load_dataset(_DATASETS / "known_50.jsonl")
+    leaks, checked, skipped = [], 0, {}
+    for r in rows:
+        abstract = (r.get("killing_work") or {}).get("abstract")
+        if not abstract:
+            skipped[r["id"]] = (
+                "code-only: no flagship-paper abstract"
+                if "github.com" in r["killing_work"]["url"]
+                else "killing-work abstract unavailable for this venue"
+            )
+            continue
+        checked += 1
+        overlap = _shingles(r["idea_description"]) & _shingles(abstract)
+        if overlap:
+            leaks.append((r["id"], sorted(overlap)))
+
+    assert not leaks, f"verbatim 8-word leakage between idea and killing-work abstract: {leaks}"
+    # Not vacuous: the large majority of KNOWN rows are actually checked.
+    assert checked >= 30, f"only {checked} rows carry an abstract — guard is too weak"
+    assert all(skipped.values()), "every skipped row must record a reason"
 
 
 def test_model_recorded_in_result_header():
