@@ -6,15 +6,21 @@ loop based on the review feedback. It uses structured output (output_schema) ins
 of normal text output and does not have access to any tools.
 """
 
+import json
 import logging
+from typing import Any, AsyncGenerator
 
+from google.adk.agents import BaseAgent, InvocationContext
 from google.adk.agents.callback_context import CallbackContext
+from google.adk.events import Event, EventActions
 from google.adk.planners import BuiltInPlanner
 from google.genai import types
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
+from typing_extensions import override
 
 from ai_research_engineer.agents.adk.loop_detection import LoopDetectionAgent
 from ai_research_engineer.agents.adk.utils import REVIEW_MODEL, get_generate_content_config
+from ai_research_engineer.core.novelty.gate import ideation_gate_decision
 from ai_research_engineer.prompts import load_prompt
 
 
@@ -145,29 +151,108 @@ class ReviewConfirmationOutput(BaseModel):
 REVIEW_CONFIRMATION_OUTPUT_SCHEMA = ReviewConfirmationOutput
 
 
+def _compute_novelty_verdict(state: dict, k: int) -> dict:
+    """Parse the scorer output from state and return the code-authoritative
+    ideation verdict (also cached in ``state['novelty_verdict']``)."""
+    raw = state.get("novelty_scorer_feedback")
+    scorer_output = raw
+    if isinstance(raw, str):
+        try:
+            scorer_output = json.loads(raw)
+        except Exception:
+            scorer_output = {}
+    if not isinstance(scorer_output, dict):
+        scorer_output = {}
+    verdict = ideation_gate_decision(scorer_output, k)
+    state["novelty_verdict"] = verdict
+    return verdict
+
+
 def make_novelty_gate_callback(k: int = 12):
     """Before-agent callback (S2-3): compute the code-authoritative novelty
-    verdict from ``state['novelty_scorer_feedback']`` and store the structured
-    verdict in ``state['novelty_verdict']`` so the ideation confirmation branches
-    on evidence, not on the scorer's self-claimed approval."""
-    import json as _json
-
-    from ai_research_engineer.core.novelty.gate import ideation_gate_decision
+    verdict from ``state['novelty_scorer_feedback']`` and store it in
+    ``state['novelty_verdict']``."""
 
     def novelty_gate_callback(callback_context: CallbackContext):
-        state = callback_context._invocation_context.session.state
-        raw = state.get("novelty_scorer_feedback")
-        scorer_output = raw
-        if isinstance(raw, str):
-            try:
-                scorer_output = _json.loads(raw)
-            except Exception:
-                scorer_output = {}
-        if not isinstance(scorer_output, dict):
-            scorer_output = {}
-        state["novelty_verdict"] = ideation_gate_decision(scorer_output, k)
+        _compute_novelty_verdict(callback_context._invocation_context.session.state, k)
 
     return novelty_gate_callback
+
+
+def _audit_reason(verdict: dict) -> str:
+    """Audit-trail reason: killing work(s) verbatim on a core overlap,
+    ``"incomplete_differentiation"`` on an incomplete table, else the reason."""
+    if verdict.get("approved"):
+        return verdict.get("reason") or "approved"
+    killing = verdict.get("killing_works") or []
+    if killing:
+        return "core overlap — killing work(s): " + json.dumps(killing)
+    if (verdict.get("reason") or "") == "incomplete differentiation":
+        return "incomplete_differentiation"
+    return verdict.get("reason") or "rejected"
+
+
+class IdeationGateAgent(BaseAgent):
+    """Code-only ideation novelty gate (S2-3) — no LLM call.
+
+    Reads the code-computed novelty verdict (``state['novelty_verdict']``,
+    recomputing from the scorer output if absent) and sets the loop exit
+    directly: ``approved`` -> escalate (exit True); otherwise no escalate (the
+    generator regenerates). Records a Stage 0 gate_decision so the sabotage suite
+    and audit trail read consistently. Scoped to ideation only — planning, paper,
+    and implementation confirmations keep their LLM agents.
+    """
+
+    _k: Any = PrivateAttr()
+
+    def __init__(self, k: int = 12, name: str = "ideation_gate_agent"):
+        super().__init__(
+            name=name,
+            description="Code-authoritative ideation novelty gate (no LLM).",
+        )
+        self._k = k
+
+    @override
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        state = ctx.session.state
+        verdict = state.get("novelty_verdict")
+        if not isinstance(verdict, dict):
+            verdict = _compute_novelty_verdict(state, self._k)
+
+        approved = bool(verdict.get("approved"))
+        reason = _audit_reason(verdict)
+
+        # Stage 0 gate_decision entry (mirrors NonEscalatingLoopAgent) so the
+        # streaming layer emits a consistent GateDecisionEvent for the audit trail.
+        decisions = state.get("_gate_decisions")
+        if not isinstance(decisions, list):
+            decisions = []
+        decisions.append(
+            {
+                "loop": "ideation_novelty_gate",
+                "outcome": "approved" if approved else "rejected",
+                "reason": reason,
+            }
+        )
+        state["_gate_decisions"] = decisions
+        logger.info("[ideation_gate] code verdict=%s — %s", verdict.get("verdict"), reason)
+
+        text = (
+            f"🚦 **Ideation novelty gate** (code): "
+            f"**{'APPROVE' if approved else 'REJECT'}** — {reason}"
+        )
+        yield Event(
+            author=self.name,
+            content=types.Content(role="model", parts=[types.Part(text=text)]),
+            actions=EventActions(escalate=approved),
+            turn_complete=False,
+        )
+
+
+def create_ideation_gate_agent(k: int = 12) -> IdeationGateAgent:
+    """Factory for the code-only ideation novelty gate (replaces the ideation
+    confirmation LLM)."""
+    return IdeationGateAgent(k=k)
 
 
 def create_review_confirmation_agent(
