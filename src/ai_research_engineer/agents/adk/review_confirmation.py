@@ -145,9 +145,35 @@ class ReviewConfirmationOutput(BaseModel):
 REVIEW_CONFIRMATION_OUTPUT_SCHEMA = ReviewConfirmationOutput
 
 
+def make_novelty_gate_callback(k: int = 12):
+    """Before-agent callback (S2-3): compute the code-authoritative novelty
+    verdict from ``state['novelty_scorer_feedback']`` and store the structured
+    verdict in ``state['novelty_verdict']`` so the ideation confirmation branches
+    on evidence, not on the scorer's self-claimed approval."""
+    import json as _json
+
+    from ai_research_engineer.core.novelty.gate import ideation_gate_decision
+
+    def novelty_gate_callback(callback_context: CallbackContext):
+        state = callback_context._invocation_context.session.state
+        raw = state.get("novelty_scorer_feedback")
+        scorer_output = raw
+        if isinstance(raw, str):
+            try:
+                scorer_output = _json.loads(raw)
+            except Exception:
+                scorer_output = {}
+        if not isinstance(scorer_output, dict):
+            scorer_output = {}
+        state["novelty_verdict"] = ideation_gate_decision(scorer_output, k)
+
+    return novelty_gate_callback
+
+
 def create_review_confirmation_agent(
     auto_exit_on_completion: bool = False,
     prompt_name: str = "plan_review_confirmation",
+    pre_agent_callback=None,
 ) -> LoopDetectionAgent:
     """
     Create a review confirmation agent with structured output.
@@ -206,7 +232,15 @@ def create_review_confirmation_agent(
 
     # Create agent-specific callbacks using factory functions
     # These closures capture the state_key for this specific agent instance
-    before_callback = _create_clear_decision_callback(state_key)
+    clear_callback = _create_clear_decision_callback(state_key)
+    if pre_agent_callback is not None:
+        # Compose: run the gate (compute the structured verdict) BEFORE clearing
+        # the stale decision, so the confirmation agent sees a fresh verdict.
+        def before_callback(callback_context: CallbackContext):
+            pre_agent_callback(callback_context)
+            return clear_callback(callback_context)
+    else:
+        before_callback = clear_callback
     after_callback = _create_exit_loop_callback(state_key) if auto_exit_on_completion else None
 
     agent = LoopDetectionAgent(

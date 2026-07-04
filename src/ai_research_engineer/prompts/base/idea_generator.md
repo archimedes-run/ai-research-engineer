@@ -17,34 +17,27 @@ To ensure your proposed ideas are truly novel and to avoid exceeding your contex
 
 # FEEDBACK INTEGRATION: Learning from Rejection
 
-If you receive feedback that your previous ideas were REJECTED, read the JSON carefully:
+If your previous idea was REJECTED, the feedback carries the **exact prior work(s) that killed it, verbatim**. Read them and do not propose anything a killing work already does.
 
 ```json
 {
   "exit": false,
   "novelty_feedback": {
-    "composite_score": 2.3,
-    "publication_tier": "REJECT",
-    "blocking_red_flags": [
-      "FATAL: Combination of known methods without new principle",
-      "FATAL: No mechanistic explanation"
-    ],
-    "dimensional_breakdown": {
-      "method_novelty": {
-        "score": 2,
-        "interpretation": "Voronoi + SA both known. No new method."
-      },
-      "principle_power": {
-        "score": 2,
-        "interpretation": "No mechanism. No ablations."
+    "verdict": "reject",
+    "reason": "core overlap with prior work",
+    "killing_works": [
+      {
+        "work_id": "https://doi.org/10.5555/x",
+        "overlap_summary": "Already learns a per-head sparse attention pattern from the input.",
+        "differs_because": "",
+        "overlap_severity": "core"
       }
-    },
-    "instruction_to_generator": "To fix: Propose an idea that has EITHER..."
+    ]
   }
 }
 ```
 
-**YOU MUST READ**: `instruction_to_generator` and `dimensional_breakdown` fields.
+**YOU MUST READ** every entry in `killing_works`. Each is a paper/repo that already implements the core of your last idea. Your next idea must have a **concrete, defensible differentiation** from every killing work — a different mechanism, setting, or claim — or it will be rejected again. If `reason` is "incomplete differentiation", the prior audit could not even complete; sharpen the idea so its contribution is unambiguous.
 
 ---
 
@@ -117,13 +110,8 @@ For each idea (2-3 total):
   "title": "...",
   "description": "Detailed explanation of the approach with mathematical/logical detail",
   "why_novel": "Specific principle/technique/insight that is new",
-  "expected_mvpt": {
-    "method_novelty": "7 - [Justification: entirely new approach/framework]",
-    "verifiability": "8 - [Justification: code will be released, complete protocol]",
-    "principle_power": "7 - [Justification: theoretical proof / ablation plan]",
-    "transfer_capability": "6 - [Justification: applies to related problems / multiple domains]"
-  },
-  "predicted_tier": "TIER_1 or TIER_2",
+  "closest_prior_work": "The nearest work you are aware of, and the concrete mechanism/setting/claim that differentiates this idea from it",
+  "verifiability_plan": "Code/data release + protocol detail sufficient for others to reproduce",
   "risks_or_limitations": "Known challenges or dependencies"
 }
 ```
@@ -137,17 +125,17 @@ If you're in a feedback loop and received rejection, output this format instead:
 ```json
 {
   "regeneration_round": 2,
-  "prior_feedback_summary": "Ideas scored 2.3/10 composite. Red flags: M=2 (no new method), P=2 (no mechanism)",
-  "dimensions_to_fix": [
-    "method_novelty: Was 2, must be >= 5 now",
-    "principle_power: Was 2, must be >= 5 now"
+  "prior_killing_works": [
+    "https://doi.org/10.5555/x — already learns per-head sparsity from input"
   ],
   "new_ideas": [
     {
       "idea_number": 1,
-      "title": "[Specifically addresses the failure]",
-      "how_this_fixes_prior_failure": "[Explicit tie to instruction_to_generator]",
-      "expected_mvpt": { ... }
+      "title": "[Specifically differentiates from every killing work]",
+      "how_this_differs_from_killing_works": "[For each prior killing work, the concrete mechanism/setting/claim that this idea does NOT share]",
+      "description": "...",
+      "closest_prior_work": "...",
+      "verifiability_plan": "..."
     }
   ]
 }
@@ -164,6 +152,6 @@ If you're in a feedback loop and received rejection, output this format instead:
 {rejection_feedback?}
 
 # Instructions
-If rejection_feedback is provided: READ IT CAREFULLY. Your job is to regenerate ideas that directly fix the dimensional failures while maintaining rigor and novelty.
+If rejection_feedback is provided: READ every entry in `killing_works` CAREFULLY. Your job is to regenerate ideas that are concretely differentiated from each killing work — a specific mechanism, setting, or claim that the killing work does not share — while maintaining rigor and novelty.
 
-If no rejection_feedback: Execute the standard triage funnel and propose 2-3 genuinely novel ideas.
+If no rejection_feedback: Execute the standard triage funnel and propose genuinely novel ideas.

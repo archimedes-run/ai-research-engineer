@@ -26,7 +26,10 @@ from typing_extensions import override
 from ai_research_engineer.agents.adk.event_compression import create_compression_callback
 from ai_research_engineer.agents.adk.implementation_loop import make_implementation_agents
 from ai_research_engineer.agents.adk.loop_detection import LoopDetectionAgent
-from ai_research_engineer.agents.adk.review_confirmation import create_review_confirmation_agent
+from ai_research_engineer.agents.adk.review_confirmation import (
+    create_review_confirmation_agent,
+    make_novelty_gate_callback,
+)
 from ai_research_engineer.agents.adk.utils import (
     DEFAULT_MODEL,
     REVIEW_MODEL,
@@ -860,7 +863,13 @@ def create_agent(
         sub_agents=[
             idea_generator_agent,
             novelty_scorer_agent,
-            create_review_confirmation_agent(auto_exit_on_completion=True, prompt_name="ideation_review_confirmation"),
+            create_review_confirmation_agent(
+                auto_exit_on_completion=True,
+                prompt_name="ideation_review_confirmation",
+                # S2-3: compute the code-authoritative novelty verdict from the
+                # scorer output before the confirmation branches on it.
+                pre_agent_callback=make_novelty_gate_callback(k=12),
+            ),
         ],
         max_iterations=5,
     )
