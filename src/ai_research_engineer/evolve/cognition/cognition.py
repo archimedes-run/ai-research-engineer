@@ -6,9 +6,10 @@ from pathlib import Path
 from threading import RLock
 from typing import Dict, List, Optional, Tuple
 
+from ai_research_engineer.core.embedding import EmbeddingService
+from ai_research_engineer.core.faiss_index import FAISSIndex
+
 from ..utils.structures import CognitionItem
-from ..database.faiss_index import FAISSIndex
-from ..database.embedding import EmbeddingService
 
 
 class Cognition:
