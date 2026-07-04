@@ -857,14 +857,34 @@ def create_agent(
         after_agent_callback=scorer_compression,
     )
 
+    # S2-4: adversarial falsifier — runs after the scorer, tries to find a prior
+    # work that kills an approved idea (a `core` overlap the table missed).
+    logger.info(f"[AIResearcher] Creating adversarial novelty falsifier with model={REVIEW_MODEL}")
+    novelty_falsifier_agent = LoopDetectionAgent(
+        name="novelty_falsifier_agent",
+        model=REVIEW_MODEL,
+        description="Adversarially searches for a prior work that kills an approved idea.",
+        instruction=load_prompt("novelty_falsifier", domain),
+        tools=tools,
+        output_key="novelty_falsifier_feedback",
+        planner=BuiltInPlanner(
+            thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=-1),
+        ),
+        generate_content_config=get_generate_content_config(temperature=0.0),
+        after_agent_callback=create_compression_callback(event_threshold=40, overlap_size=20),
+    )
+
     ideation_loop = NonEscalatingLoopAgent(
         name="ideation_loop",
         description="Iteratively extracts or brainstorms research ideas based on the specified mode.",
         sub_agents=[
             idea_generator_agent,
             novelty_scorer_agent,
+            # S2-4: falsifier runs after the scorer; the code gate consumes its verdict.
+            novelty_falsifier_agent,
             # S2-3: the ideation novelty gate is CODE-ONLY — no confirmation LLM.
-            # It reads the code-computed verdict and sets loop exit directly.
+            # It reads the code-computed verdict (and the falsifier veto) and sets
+            # loop exit directly.
             create_ideation_gate_agent(k=12),
         ],
         max_iterations=5,

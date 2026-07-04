@@ -28,10 +28,12 @@ _PROVIDER_CREDENTIAL_ENV = {
 # Built-in defaults — the shape of the whole config tree.
 DEFAULT_EMBEDDINGS_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_PDF_ENGINE = "pymupdf4llm"
+DEFAULT_DEDUP_THRESHOLD = 0.92
 _DEFAULTS = {
     "search": {"web_provider": "none"},
     "embeddings": {"model": DEFAULT_EMBEDDINGS_MODEL},
     "ingestion": {"pdf_engine": DEFAULT_PDF_ENGINE},
+    "novelty": {"dedup_threshold": DEFAULT_DEDUP_THRESHOLD},
 }
 
 
@@ -112,3 +114,20 @@ def get_embeddings_model() -> str:
 def get_pdf_engine() -> str:
     """PDF ingestion engine (env > config > default)."""
     return _resolve("INGESTION_PDF_ENGINE", "ingestion", "pdf_engine", default=DEFAULT_PDF_ENGINE)
+
+
+def get_dedup_threshold() -> float:
+    """Idea-dedup cosine threshold (env > config > default). An idea whose
+    embedding exceeds this cosine against a previously rejected idea is
+    auto-rejected without spending scorer tokens (S2-5)."""
+    env = os.getenv("NOVELTY_DEDUP_THRESHOLD")
+    if env is not None:
+        try:
+            return float(env)
+        except ValueError:
+            pass
+    val = load_config().get("novelty", {}).get("dedup_threshold", DEFAULT_DEDUP_THRESHOLD)
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return DEFAULT_DEDUP_THRESHOLD

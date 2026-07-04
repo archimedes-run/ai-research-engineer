@@ -29,9 +29,11 @@ def _scorer(severities, verdict="approve"):
     return json.dumps({"verdict": verdict, "differentiation_table": [_row(f"W{i}", s) for i, s in enumerate(severities)]})
 
 
-def _run_gate(scorer_feedback, k=2):
+def _run_gate(scorer_feedback, k=2, falsifier_feedback=None):
     """Run the code-only gate against a state dict; return (events, state)."""
     state = {"novelty_scorer_feedback": scorer_feedback}
+    if falsifier_feedback is not None:
+        state["novelty_falsifier_feedback"] = falsifier_feedback
     ctx = SimpleNamespace(session=SimpleNamespace(state=state))
     agent = create_ideation_gate_agent(k=k)
 
@@ -53,6 +55,27 @@ def test_clean_approve_escalates_exit_true():
     gd = state["_gate_decisions"][-1]
     assert gd["loop"] == "ideation_novelty_gate"
     assert gd["outcome"] == "approved"
+
+
+def test_falsifier_veto_flips_approve_to_reject_in_graph_gate():
+    # Scorer approves a clean table, but the falsifier found a killing work ->
+    # the code gate vetoes the approval (no escalate) in the ADK graph path.
+    approve = _scorer(["none", "partial"])
+    found = json.dumps({"found": True, "work": {"work_id": "KILLER", "title": "Prior Work"},
+                        "why_core": "already implements the core mechanism"})
+    events, state = _run_gate(approve, k=2, falsifier_feedback=found)
+    assert events[0].actions.escalate is False
+    assert state["novelty_verdict"]["approved"] is False
+    assert state["_gate_decisions"][-1]["outcome"] == "rejected"
+    assert "KILLER" in state["_gate_decisions"][-1]["reason"]
+
+
+def test_falsifier_clean_leaves_approve_intact():
+    approve = _scorer(["none", "partial"])
+    clean = json.dumps({"found": False, "searched": ["q1", "q2"]})
+    events, state = _run_gate(approve, k=2, falsifier_feedback=clean)
+    assert events[0].actions.escalate is True
+    assert state["novelty_verdict"]["approved"] is True
 
 
 def test_core_overlap_no_escalate_with_killing_work_verbatim():

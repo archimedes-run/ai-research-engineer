@@ -20,6 +20,7 @@ from typing_extensions import override
 
 from ai_research_engineer.agents.adk.loop_detection import LoopDetectionAgent
 from ai_research_engineer.agents.adk.utils import REVIEW_MODEL, get_generate_content_config
+from ai_research_engineer.core.novelty.falsifier import parse_falsifier_output
 from ai_research_engineer.core.novelty.gate import ideation_gate_decision
 from ai_research_engineer.prompts import load_prompt
 
@@ -168,6 +169,30 @@ def _compute_novelty_verdict(state: dict, k: int) -> dict:
     return verdict
 
 
+def _apply_falsifier(verdict: dict, state: dict) -> dict:
+    """S2-4: on a scorer APPROVE, let the adversarial falsifier veto it. This is
+    the single-round graph integration; the multi-round re-scoring orchestrator
+    (two clean passes / max-2-rounds cap) lives in ``core.novelty.falsifier`` and
+    is exercised by the benchmark and unit tests."""
+    if not verdict.get("approved"):
+        return verdict
+    raw = state.get("novelty_falsifier_feedback")
+    if raw is None:
+        return verdict
+    f = parse_falsifier_output(raw)
+    if not f["found"]:
+        return verdict
+    killer = f["work"] or {}
+    return {
+        "exit": False,
+        "approved": False,
+        "verdict": "reject",
+        "reason": f["why_core"] or "falsifier found a core overlap the table missed",
+        "killing_works": [killer] if killer else [],
+        "falsifier": f,
+    }
+
+
 def _audit_reason(verdict: dict) -> str:
     """Audit-trail reason: killing work(s) verbatim on a core overlap,
     ``"incomplete_differentiation"`` on an incomplete table, else the reason."""
@@ -207,6 +232,10 @@ class IdeationGateAgent(BaseAgent):
         verdict = state.get("novelty_verdict")
         if not isinstance(verdict, dict):
             verdict = _compute_novelty_verdict(state, self._k)
+
+        # S2-4: an adversarial falsifier may veto a scorer approve.
+        verdict = _apply_falsifier(verdict, state)
+        state["novelty_verdict"] = verdict
 
         approved = bool(verdict.get("approved"))
         reason = _audit_reason(verdict)

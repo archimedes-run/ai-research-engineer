@@ -20,3 +20,9 @@ embeddings:
 ingestion:
   # PDF -> markdown engine for paper ingestion. Env override: INGESTION_PDF_ENGINE.
   pdf_engine: pymupdf4llm
+
+novelty:
+  # Idea-dedup cosine threshold (S2-5): an idea whose embedding exceeds this
+  # cosine against a previously-rejected idea this session is auto-rejected
+  # without spending scorer tokens. Env override: NOVELTY_DEDUP_THRESHOLD.
+  dedup_threshold: 0.92
