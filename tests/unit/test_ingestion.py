@@ -63,14 +63,16 @@ class TestHtmlIngestion:
         # The exact LaTeX from the <math alttext="..."> must be preserved inline.
         assert r"\mathcal{L} = -\sum_i y_i \log \hat{y}_i" in all_md
 
-    def test_read_paper_toc_mode_not_a_blob(self, tmp_path):
+    def test_read_paper_toc_mode_is_structured_not_a_blob(self, tmp_path):
         wd, _ = self._ingest(tmp_path)
         out = ingestion.read_paper(self.PAPER, wd)  # no section -> TOC mode
+        # SHAPE, not length: a section index (ToC) is present ...
         assert "Table of contents" in out
         assert "Abstract" in out
         assert "TRUNCATED" not in out
-        # A table of contents + abstract + first section is compact, not a 40k blob.
-        assert len(out) < 5000
+        # ... and body text that lives only in later sections is NOT dumped in.
+        assert "91%" not in out  # lives only in the Experiments section
+        assert "PLANTED_UNIQUE_TOKEN_XYZ" not in out  # lives only in the Method section
 
     def test_read_paper_returns_only_requested_section(self, tmp_path):
         wd, _ = self._ingest(tmp_path)
@@ -115,6 +117,40 @@ class TestPdfIngestion:
 
         out = ingestion.read_paper(self.PAPER, wd)
         assert "Table of contents" in out
+        assert "TRUNCATED" not in out
+
+
+# --------------------------------------------------------------------------- #
+# Truncation-gone proof on a REAL, large (>40k) ar5iv paper
+# --------------------------------------------------------------------------- #
+class TestTruncationGoneProofLargePaper:
+    """sample_arxiv_long.html is a real ar5iv paper (BERT, 1810.04805) whose
+    reconstructed full text exceeds 40k, so it actually exercises the old
+    truncation path. A planted marker sits in a mid section (offset < 40k, not
+    the first section): TOC mode must NOT include it, while a restored 40k blob
+    WOULD — which is why this test bites against the old behavior."""
+
+    PAPER = "1810.04805"
+    MARKER = "LATE_SECTION_MARKER_ZZZ42"
+
+    def _ingest(self, tmp_path):
+        wd = _working_dir_with(tmp_path, "sample_arxiv_long.html", self.PAPER, "html")
+        return wd, ingestion.ingest_paper(self.PAPER, wd)
+
+    def test_fixture_full_text_exceeds_40k(self, tmp_path):
+        wd, _ = self._ingest(tmp_path)
+        full_md = (Path(wd) / "literature" / self.PAPER / "full.md").read_text(encoding="utf-8")
+        assert len(full_md) > 40000, "fixture must exceed 40k to exercise the old truncation path"
+        # The planted marker lives within the first 40k so a 40k blob would keep it.
+        assert 0 <= full_md.find(self.MARKER) < 40000
+
+    def test_read_paper_toc_mode_shape_not_truncated_blob(self, tmp_path):
+        wd, _ = self._ingest(tmp_path)
+        out = ingestion.read_paper(self.PAPER, wd)  # TOC mode
+        # (1) It has a section index / ToC ...
+        assert "Table of contents" in out
+        # (2) ... and does NOT dump body text that appears only in a late section.
+        assert self.MARKER not in out
         assert "TRUNCATED" not in out
 
 
