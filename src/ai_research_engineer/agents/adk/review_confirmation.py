@@ -20,8 +20,8 @@ from typing_extensions import override
 
 from ai_research_engineer.agents.adk.loop_detection import LoopDetectionAgent
 from ai_research_engineer.agents.adk.utils import REVIEW_MODEL, get_generate_content_config
-from ai_research_engineer.core.novelty.falsifier import parse_falsifier_output
-from ai_research_engineer.core.novelty.gate import ideation_gate_decision
+from ai_research_engineer.core.novelty.falsifier import DEFAULT_MAX_ROUNDS, falsifier_flow
+from ai_research_engineer.core.novelty.gate import evaluate_novelty, ideation_gate_decision
 from ai_research_engineer.prompts import load_prompt
 
 
@@ -169,28 +169,106 @@ def _compute_novelty_verdict(state: dict, k: int) -> dict:
     return verdict
 
 
-def _apply_falsifier(verdict: dict, state: dict) -> dict:
-    """S2-4: on a scorer APPROVE, let the adversarial falsifier veto it. This is
-    the single-round graph integration; the multi-round re-scoring orchestrator
-    (two clean passes / max-2-rounds cap) lives in ``core.novelty.falsifier`` and
-    is exercised by the benchmark and unit tests."""
-    if not verdict.get("approved"):
-        return verdict
-    raw = state.get("novelty_falsifier_feedback")
-    if raw is None:
-        return verdict
-    f = parse_falsifier_output(raw)
-    if not f["found"]:
-        return verdict
-    killer = f["work"] or {}
+def _parse_json_maybe(raw) -> dict:
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _parse_candidates(raw) -> list:
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return []
+    return raw if isinstance(raw, list) else []
+
+
+def _decision_to_verdict(decision: dict) -> dict:
+    """Shape a falsifier_flow decision into the novelty_verdict the gate reads."""
+    approved = bool(decision.get("approved"))
+    killing = decision.get("killing_works", [])
     return {
-        "exit": False,
-        "approved": False,
-        "verdict": "reject",
-        "reason": f["why_core"] or "falsifier found a core overlap the table missed",
-        "killing_works": [killer] if killer else [],
-        "falsifier": f,
+        "exit": approved,
+        "approved": approved,
+        "verdict": decision.get("verdict"),
+        "reason": decision.get("reason"),
+        "killing_works": killing,
+        "feedback": {"verdict": decision.get("verdict"), "reason": decision.get("reason"), "killing_works": killing},
+        "falsifier_rounds": decision.get("falsifier_rounds"),
     }
+
+
+class FalsifierReVerdictAgent(BaseAgent):
+    """S2-4 — runs the adversarial falsifier re-verdict loop in the live graph.
+
+    Sits between the scorer and the code gate. On a scorer APPROVE it drives the
+    SHARED ``falsifier_flow`` control machine, re-invoking the falsifier and
+    scorer LLM agents on the augmented candidate set (up to 2 rounds), and writes
+    the FINAL code-gate verdict to ``state['novelty_verdict']`` for the gate. It
+    adds no control-flow logic of its own — it only pumps ``falsifier_flow``. The
+    outer generation loop fires only on the gate's final REJECT, not on falsifier
+    finds.
+    """
+
+    _k: Any = PrivateAttr()
+    _scorer: Any = PrivateAttr()
+    _falsifier: Any = PrivateAttr()
+
+    def __init__(self, scorer_agent, falsifier_agent, k: int = 12, name: str = "falsifier_reverdict_agent"):
+        super().__init__(name=name, description="Drives the shared falsifier re-verdict control flow (no new logic).")
+        self._scorer = scorer_agent
+        self._falsifier = falsifier_agent
+        self._k = k
+
+    def _info(self, text: str) -> Event:
+        return Event(author=self.name, content=types.Content(role="model", parts=[types.Part(text=text)]),
+                     turn_complete=False)
+
+    @override
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        state = ctx.session.state
+        initial = _parse_json_maybe(state.get("novelty_scorer_feedback"))
+        base = evaluate_novelty(initial, self._k)
+
+        if not base.approved:
+            # A scorer REJECT stands; the falsifier only probes approvals.
+            state["novelty_verdict"] = ideation_gate_decision(initial, self._k)
+            yield self._info("🔬 Falsifier skipped — scorer did not approve.")
+            return
+
+        idea = {"generated_ideas": state.get("generated_ideas")}
+        candidates = _parse_candidates(state.get("prefiltered_works"))
+        flow = falsifier_flow(idea, base, candidates, self._k, DEFAULT_MAX_ROUNDS)
+        decision = None
+        try:
+            request = flow.send(None)
+            while True:
+                kind, _idea, payload = request
+                if kind == "falsify":
+                    async for ev in self._falsifier.run_async(ctx):
+                        yield ev
+                    result = state.get("novelty_falsifier_feedback")
+                else:  # "score" — inject the augmented candidate set, re-run scorer
+                    state["prefiltered_works"] = json.dumps(payload)
+                    async for ev in self._scorer.run_async(ctx):
+                        yield ev
+                    result = _parse_json_maybe(state.get("novelty_scorer_feedback"))
+                request = flow.send(result)
+        except StopIteration as stop:
+            decision = stop.value
+
+        state["novelty_verdict"] = _decision_to_verdict(decision or {})
+        yield self._info(f"🔬 Falsifier re-verdict: {(decision or {}).get('verdict')} — {(decision or {}).get('reason')}")
+
+
+def create_falsifier_reverdict_agent(scorer_agent, falsifier_agent, k: int = 12) -> FalsifierReVerdictAgent:
+    """Factory for the S2-4 falsifier re-verdict agent (sits between the scorer
+    and the ideation gate)."""
+    return FalsifierReVerdictAgent(scorer_agent, falsifier_agent, k=k)
 
 
 def _audit_reason(verdict: dict) -> str:
@@ -229,13 +307,12 @@ class IdeationGateAgent(BaseAgent):
     @override
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         state = ctx.session.state
+        # The falsifier re-verdict agent (S2-4) writes the FINAL novelty_verdict
+        # upstream; fall back to computing it from the scorer output if it ran
+        # standalone (e.g. no falsifier stage wired).
         verdict = state.get("novelty_verdict")
         if not isinstance(verdict, dict):
             verdict = _compute_novelty_verdict(state, self._k)
-
-        # S2-4: an adversarial falsifier may veto a scorer approve.
-        verdict = _apply_falsifier(verdict, state)
-        state["novelty_verdict"] = verdict
 
         approved = bool(verdict.get("approved"))
         reason = _audit_reason(verdict)

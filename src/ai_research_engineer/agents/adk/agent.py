@@ -27,6 +27,7 @@ from ai_research_engineer.agents.adk.event_compression import create_compression
 from ai_research_engineer.agents.adk.implementation_loop import make_implementation_agents
 from ai_research_engineer.agents.adk.loop_detection import LoopDetectionAgent
 from ai_research_engineer.agents.adk.review_confirmation import (
+    create_falsifier_reverdict_agent,
     create_ideation_gate_agent,
     create_review_confirmation_agent,
 )
@@ -874,17 +875,25 @@ def create_agent(
         after_agent_callback=create_compression_callback(event_threshold=40, overlap_size=20),
     )
 
+    # S2-4: the re-verdict agent sits between the scorer and the gate. On a scorer
+    # APPROVE it drives the shared falsifier control flow — re-invoking the
+    # falsifier and scorer on the augmented candidate set (up to 2 rounds) within
+    # the SAME iteration — and writes the final verdict for the gate. The falsifier
+    # is driven internally here, not as a direct loop sub-agent.
+    falsifier_reverdict_agent = create_falsifier_reverdict_agent(
+        novelty_scorer_agent, novelty_falsifier_agent, k=12
+    )
+
     ideation_loop = NonEscalatingLoopAgent(
         name="ideation_loop",
         description="Iteratively extracts or brainstorms research ideas based on the specified mode.",
         sub_agents=[
             idea_generator_agent,
             novelty_scorer_agent,
-            # S2-4: falsifier runs after the scorer; the code gate consumes its verdict.
-            novelty_falsifier_agent,
-            # S2-3: the ideation novelty gate is CODE-ONLY — no confirmation LLM.
-            # It reads the code-computed verdict (and the falsifier veto) and sets
-            # loop exit directly.
+            # S2-4: full falsifier re-verdict loop (scorer re-runs on finds).
+            falsifier_reverdict_agent,
+            # S2-3: the ideation novelty gate is CODE-ONLY — reads the final verdict
+            # and sets loop exit directly.
             create_ideation_gate_agent(k=12),
         ],
         max_iterations=5,
