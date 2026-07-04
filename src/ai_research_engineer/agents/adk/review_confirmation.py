@@ -168,17 +168,6 @@ def _compute_novelty_verdict(state: dict, k: int) -> dict:
     return verdict
 
 
-def make_novelty_gate_callback(k: int = 12):
-    """Before-agent callback (S2-3): compute the code-authoritative novelty
-    verdict from ``state['novelty_scorer_feedback']`` and store it in
-    ``state['novelty_verdict']``."""
-
-    def novelty_gate_callback(callback_context: CallbackContext):
-        _compute_novelty_verdict(callback_context._invocation_context.session.state, k)
-
-    return novelty_gate_callback
-
-
 def _audit_reason(verdict: dict) -> str:
     """Audit-trail reason: killing work(s) verbatim on a core overlap,
     ``"incomplete_differentiation"`` on an incomplete table, else the reason."""
@@ -258,7 +247,6 @@ def create_ideation_gate_agent(k: int = 12) -> IdeationGateAgent:
 def create_review_confirmation_agent(
     auto_exit_on_completion: bool = False,
     prompt_name: str = "plan_review_confirmation",
-    pre_agent_callback=None,
 ) -> LoopDetectionAgent:
     """
     Create a review confirmation agent with structured output.
@@ -317,15 +305,7 @@ def create_review_confirmation_agent(
 
     # Create agent-specific callbacks using factory functions
     # These closures capture the state_key for this specific agent instance
-    clear_callback = _create_clear_decision_callback(state_key)
-    if pre_agent_callback is not None:
-        # Compose: run the gate (compute the structured verdict) BEFORE clearing
-        # the stale decision, so the confirmation agent sees a fresh verdict.
-        def before_callback(callback_context: CallbackContext):
-            pre_agent_callback(callback_context)
-            return clear_callback(callback_context)
-    else:
-        before_callback = clear_callback
+    before_callback = _create_clear_decision_callback(state_key)
     after_callback = _create_exit_loop_callback(state_key) if auto_exit_on_completion else None
 
     agent = LoopDetectionAgent(

@@ -141,7 +141,16 @@ def test_idea_generator_has_no_expected_mvpt():
     assert "killing_works" in text
 
 
-def test_ideation_confirmation_branches_on_structured_verdict():
-    text = (_PROMPTS / "ideation_review_confirmation.md").read_text()
-    assert "novelty_verdict" in text
-    assert "TIER_" not in text
+def test_ideation_confirmation_prompt_is_gone():
+    # The ideation confirmation is now code-only; the LLM prompt was removed.
+    assert not (_PROMPTS / "ideation_review_confirmation.md").exists()
+
+
+def test_ideation_review_confirmation_referenced_nowhere_in_src():
+    # Grep guard: no dead reference to the removed prompt anywhere under src/.
+    src = Path("src")
+    hits = [
+        p for p in src.rglob("*")
+        if p.is_file() and p.suffix in {".py", ".md"} and "ideation_review_confirmation" in p.read_text(encoding="utf-8", errors="ignore")
+    ]
+    assert hits == [], f"dead references to ideation_review_confirmation: {hits}"
