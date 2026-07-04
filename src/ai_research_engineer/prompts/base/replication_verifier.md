@@ -10,7 +10,7 @@ We are executing a strict replication benchmark (PaperBench).
 
 # The Baseline Audit (CRITICAL)
 You must ensure the downstream computational agents replicate the exact baselines used in the original paper.
-1. Check the JSON output from `build_citation_graph`.
+1. Check the JSON output from `build_citation_graph` (it accepts a *list* of seed IDs and ranks each node's neighbors by influence and recency, so the top `ancestor` nodes are the most influential baselines).
 2. Look strictly at the `"group": "ancestor"` nodes in the JSON structure. 
 3. Verify that the Paper Analyzer correctly identified the primary baseline models, solvers, or algorithms from this Ancestor list. If they hallucinated a generic baseline instead of the actual Ancestor baseline used by the authors, reject the blueprint and correct them.
 

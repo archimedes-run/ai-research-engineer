@@ -15,7 +15,6 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from ai_research_engineer.tools import (
-    build_citation_graph,
     build_knowledge_graph,
     compile_latex_to_pdf,
     directory_tree,
@@ -431,41 +430,9 @@ class TestResearchOps:
         # Query is passed as a keyword arg (first positional is the output path).
         assert mock_fp_search.call_args.kwargs.get("query")
 
-    @patch("ai_research_engineer.tools.research_ops.enforce_rate_limit")
-    @patch("ai_research_engineer.tools.research_ops.sch")
-    def test_build_citation_graph(self, mock_sch, mock_rate_limit, temp_workspace):
-        # Target paper: paperId and years must be real values (they land in the
-        # JSON graph), otherwise json.dumps would choke on unset MagicMocks.
-        root = MagicMock()
-        root.paperId = "ROOT"
-        root.title = "Root Paper"
-        root.year = 2023
-        root.references = [MagicMock(paperId="A1", title="Ancestor 1", year=2020)]
-        root.citations = [MagicMock(paperId="D1", title="Descendant 1", year=2025)]
-        mock_sch.get_paper.return_value = root
-
-        # Batch cross-connections call: neighbour A1 cites D1 (both already in the
-        # graph) -> the tool must add a cross edge A1 -> D1.
-        neighbor = MagicMock()
-        neighbor.paperId = "A1"
-        neighbor.citations = [MagicMock(paperId="D1")]
-        mock_sch.get_papers.return_value = [neighbor]
-
-        result = build_citation_graph("123", str(temp_workspace))
-
-        assert "Root Paper" in result
-        assert "Ancestor 1" in result
-        assert "Descendant 1" in result
-        mock_sch.get_paper.assert_called_once()
-        mock_sch.get_papers.assert_called_once()  # batch cross-connection call
-
-        # Saved to knowledge_base as JSON (current implementation).
-        kb_file = temp_workspace / "knowledge_base" / "citation_graph_123.json"
-        assert kb_file.exists()
-
-        # The cross-connection edge A1 -> D1 must be present.
-        graph = json.loads(kb_file.read_text())
-        assert {"source": "A1", "target": "D1"} in graph["edges"]
+    # build_citation_graph is exercised by the S1-4 v2 suite
+    # (tests/unit/test_citation_graph_v2.py): multi-seed union, rank-before-
+    # truncate, similarity annotation, >60-node summary, single-seed compat.
 
 
 # ==========================================

@@ -625,8 +625,18 @@ def create_agent(
         """Semantic search within a single downloaded paper's sections; returns the top_k matching chunks."""
         return search_paper(paper_id, query, working_dir_str, top_k)
 
-    def build_citation_graph_bound(paper_id: str) -> str:
-        return build_citation_graph(paper_id, working_dir_str)
+    def build_citation_graph_bound(
+        seed_ids: list[str],
+        hops: int = 2,
+        per_node_limit: int = 25,
+        query_text: Optional[str] = None,
+    ) -> str:
+        """Build a multi-seed citation graph. Neighbors are ranked by influence and
+        recency before truncation; pass query_text to annotate nodes with similarity."""
+        return build_citation_graph(
+            seed_ids, working_dir_str, hops=hops,
+            per_node_limit=per_node_limit, query_text=query_text,
+        )
 
     # --- Code Graph Tool Bindings ---
     def build_knowledge_graph_bound() -> str:
