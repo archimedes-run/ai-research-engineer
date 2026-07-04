@@ -1,0 +1,27 @@
+# Stage 1 Spec — Knowledge Layer
+Goal: one shared retrieval substrate — embeddings, section-aware paper ingestion, multi-source search, a real citation graph, and a session literature index — that novelty (Stage 2), verification (Stage 3), and memory (Stage 5) will all consume.
+
+S1-1 Core embeddings: create core/embeddings.py exposing get_embedding_service() (process-wide singleton over the existing EmbeddingService) and get_faiss_index(name, dim) factory. Add embed_texts(texts) with an on-disk cache keyed by sha256(model+text) under ~/.archimedes/cache/embeddings/. Migrate evolve/database and evolve/cognition to import from core. evolve/database/embedding.py and faiss_index.py move to core (leave thin re-export shims for one release). Exactly ONE SentenceTransformer construction site remains, in core.
+
+S1-2 Paper ingestion v2: rewrite read_paper pipeline. download_paper unchanged in behavior. New parser: for arXiv HTML, produce section-aware structured output — list of {section_path, title, markdown} preserving headings, tables (as markdown tables), and math (keep LaTeX/MathML source inline, never strip). For PDF, use pymupdf4llm (add dependency) instead of PyPDF2. Persist to literature/<paper_id>/sections.json plus a full.md. Tool changes: read_paper(paper_id, section: str|None) — with section, return only that section (fuzzy title match); without, return the table of contents + abstract + first section, NEVER a 40k truncated blob. New tool search_paper(paper_id, query, top_k=5): embedding retrieval over that paper's section chunks (chunk ~1200 chars with overlap, index built lazily per paper via core embeddings, cached under literature/<paper_id>/index/). Remove the 40000-char truncation constant entirely.
+
+S1-3 Multi-source search: new tools in tools/search_ops.py —
+ openalex_search(query, limit, year_from=None): OpenAlex works endpoint, no key required; return title/year/abstract(inverted-index reconstructed)/doi/cited_by_count.
+ paperswithcode_search(query, limit): papers + linked repos.
+ github_search(query, limit, mode="repositories"|"code"): GitHub REST search; honor GITHUB_TOKEN if present, degrade gracefully to low unauthenticated limits.
+ web_search(query, limit): provider-pluggable behind config search.web_provider in {tavily, brave, searxng, none}; keyed via env; if provider=none the tool is not registered (Stage 0 probe pattern).
+ Fix _to_findpapers_query: split the query into keywords (drop stopwords), emit "[kw1] AND [kw2] ..." with OR groups for detected synonyms; add unit tests with example queries.
+ fetch_url v2: extract readable markdown (use trafilatura or readability-lxml), parameters max_content_length default 25000 and offset for pagination; keep all SSRF behavior from Stage 0.
+
+S1-4 Citation graph v2: build_citation_graph(seed_ids: list[str], hops: int = 2, per_node_limit: int = 25, query_text: str | None = None). Multi-seed union; expand references+citations per hop within budget; rank each node's neighbor list by (influentialCitationCount, recency) BEFORE truncation; if query_text given, annotate every node with cosine similarity to it via core embeddings; persist to knowledge_base/graphs/graph_<timestamp>.json and return a compact summary + the path (not the full JSON dump when node count > 60). Keep a single-seed backward-compatible signature.
+
+S1-5 Session literature index: core/lit_index.py — a per-session FAISS index + JSONL metadata store at <working_dir>/.data/lit_index/. Provide upsert(doc: {id,title,abstract,source,url,year}) and query(text, top_k). Auto-upsert from: semantic_search_papers, openalex_search, paperswithcode_search, get_paper_details, and every parsed paper's abstract. New agent tool search_session_literature(query, top_k=10) registered in the toolbelt and mentioned in idea_generator, novelty_scorer, plan_maker, and summary prompts as the first place to look before hitting the network.
+
+S1-6 Tool registry: formalize the Stage 0 probe into core/tool_registry.py — each tool registered with requires: [network, key:TAVILY_API_KEY, binary:pdflatex, ...]; registry resolves availability once at agent construction; agent.py builds the toolbelt from the registry; the prompt assembler consumes availability for conditional sections. Config: a single config/archimedes.yaml (or extend existing config) with search.web_provider, embeddings.model, ingestion.pdf_engine; document all of it in docs/tools_configuration.md.
+
+S1-7 Frontend literature map: a read-only view in the cockpit route rendering the persisted citation-graph JSON — force-directed or layered layout, nodes colored by group (target/ancestor/descendant/expanded), size by citation count, tooltip with title/year/similarity. Data via a new GET endpoint on the server that lists and serves knowledge_base/graphs/*.json for a run.
+
+S1-8 Rubric harness: benchmarks/knowledge/ with two scripts —
+ ingestion_qa.py: takes a list of 15 arXiv ids (provide a default list mixing HTML-native, PDF-only, math-heavy, table-heavy papers), runs ingestion, and reports per paper: sections extracted count, whether a query "hyperparameters OR learning rate OR training details" via search_paper returns a section containing a number, truncation events (must be 0).
+ retrieval_recall.py: 10 (paraphrased query -> known target paper id) pairs; run the multi-source search union; report top-10 recall overall and per source.
+ Both write JSON results into benchmarks/knowledge/results/ and print a summary table.
