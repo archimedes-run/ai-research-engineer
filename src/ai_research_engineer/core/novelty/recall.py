@@ -372,6 +372,13 @@ def recall_prior_work(
     channel_status: dict = {}
     collected: List[Candidate] = []
 
+    # channel_status vocabulary (counts are only meaningful for "live"):
+    #   "live"        — channel ran; per_channel_counts is its unique-find count
+    #                   (a live channel with 0 results is still "live", count 0),
+    #   "unavailable" — registry requirements unmet (network off / key missing);
+    #                   channel never attempted,
+    #   "dead"        — PwC only: the probe reached the API but got non-JSON,
+    #   "error"       — channel was available but raised mid-run.
     def _run(name: str, fn, mapper, enabled: bool = True):
         if not enabled or not _registry_ok(name):
             channel_status[name] = "unavailable"
@@ -381,7 +388,7 @@ def recall_prior_work(
         try:
             for q in queries:
                 got.extend(mapper(_parse_list(fn(q))))
-            channel_status[name] = "ok"
+            channel_status[name] = "live"
         except Exception as exc:
             logger.debug("[recall] channel %s errored: %s", name, exc)
             channel_status[name] = "error"
@@ -398,8 +405,13 @@ def recall_prior_work(
     _run("openalex", lambda q: search_ops.openalex_search(q), _from_openalex)
     _run("github", lambda q: search_ops.github_search(q, mode="repositories"), _from_github)
 
-    # Papers with Code — only if the probe says it's alive.
-    if _pwc_alive():
+    # Papers with Code. Distinguish registry-unavailable from probe-dead: only
+    # probe when the registry says the channel is usable, so a network-off run is
+    # "unavailable", not mislabeled "dead".
+    if not _registry_ok("paperswithcode"):
+        channel_status["paperswithcode"] = "unavailable"
+        per_channel_counts["paperswithcode"] = 0
+    elif _pwc_alive():
         _run("paperswithcode", lambda q: search_ops.paperswithcode_search(q), _from_pwc)
     else:
         channel_status["paperswithcode"] = "dead"
@@ -409,7 +421,7 @@ def recall_prior_work(
     seeds = [c.id for c in collected[:3] if c.id]
     graph_cands = _citation_graph_candidates(seeds, idea, working_dir)
     if graph_cands:
-        channel_status["citation_graph"] = "ok"
+        channel_status["citation_graph"] = "live"
         per_channel_counts["citation_graph"] = len(graph_cands)
         collected.extend(graph_cands)
 

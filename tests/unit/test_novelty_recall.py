@@ -125,7 +125,7 @@ def test_all_channels_recorded_and_persisted(tmp_path, patched_env):
     # Report persisted with per-channel counts + channel_status.
     report = json.loads((tmp_path / "knowledge_base" / "novelty" / "recall_idea-001.json").read_text())
     assert report["per_channel_counts"]["arxiv"] == 1
-    assert report["channel_status"]["paperswithcode"] == "ok"
+    assert report["channel_status"]["paperswithcode"] == "live"
     assert report["candidate_count"] == len(cands)
 
     # Candidates upserted into the session LitIndex.
@@ -202,7 +202,7 @@ def test_pwc_probe_live_json_flows_candidates(tmp_path, patched_env):
         cands = recall.recall_prior_work(IDEA, str(tmp_path))
 
     report = json.loads((tmp_path / "knowledge_base" / "novelty" / "recall_idea-001.json").read_text())
-    assert report["channel_status"]["paperswithcode"] == "ok"
+    assert report["channel_status"]["paperswithcode"] == "live"
     assert any(c.source_channel == "paperswithcode" for c in cands)
 
 
@@ -223,3 +223,42 @@ def test_pwc_probe_dead_html_marks_channel_dead(tmp_path, patched_env):
     assert report["channel_status"]["paperswithcode"] == "dead"
     assert report["per_channel_counts"]["paperswithcode"] == 0
     assert not any(c.source_channel == "paperswithcode" for c in cands)
+
+
+# --------------------------------------------------------------------------- #
+# Three distinct channel states in one report: live / unavailable / dead
+# (plus "live with 0 results" — still live, count 0, NOT conflated with the
+# other zero-count states).
+# --------------------------------------------------------------------------- #
+def test_three_channel_states_recorded_distinctly(tmp_path, patched_env):
+    with (
+        # openalex is registry-unavailable (e.g. network off / key missing);
+        # every other channel is available.
+        patch.object(recall, "_registry_ok", side_effect=lambda n: n != "openalex"),
+        # PwC probe reached the API but got non-JSON -> dead (registry says usable).
+        patch.object(recall, "_pwc_alive", return_value=False),
+        # semantic_scholar: live WITH results.
+        patch.object(semantic_scholar_ops, "search_papers", return_value=S2),
+        # arxiv: live with ZERO results (must read as live, count 0).
+        patch.object(research_ops, "search_papers", return_value="[]"),
+        patch.object(search_ops, "openalex_search", return_value=OPENALEX_DISTINCT),
+        patch.object(search_ops, "github_search", return_value="[]"),
+    ):
+        recall.recall_prior_work(IDEA, str(tmp_path))
+
+    report = json.loads((tmp_path / "knowledge_base" / "novelty" / "recall_idea-001.json").read_text())
+    status = report["channel_status"]
+    counts = report["per_channel_counts"]
+
+    # 1) live (with results)
+    assert status["semantic_scholar"] == "live" and counts["semantic_scholar"] >= 1
+    # 2) live with 0 results — distinct label from the zero-count states below
+    assert status["arxiv"] == "live" and counts["arxiv"] == 0
+    # 3) registry-unavailable — never attempted
+    assert status["openalex"] == "unavailable" and counts["openalex"] == 0
+    # 4) dead — probe reached the API but got non-JSON
+    assert status["paperswithcode"] == "dead" and counts["paperswithcode"] == 0
+
+    # All three zero-count channels are told apart by STATUS, not by count.
+    assert status["arxiv"] != status["openalex"] != status["paperswithcode"]
+    assert len({status["arxiv"], status["openalex"], status["paperswithcode"]}) == 3
