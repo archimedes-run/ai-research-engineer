@@ -112,7 +112,9 @@ def test_gate_decision_emitted_on_cap_via_pipeline():
     falsify_fn = MagicMock(side_effect=[_found("K1"), _found("K2")])
     store = RejectedIdeaStore(state={}, embed_fn=lambda t: [1.0, 0.0])
 
-    result = evaluate_idea(IDEA, [{"work_id": "C0"}], score_fn=score_fn, falsify_fn=falsify_fn,
+    # Empty candidate set keeps this falsifier-focused test off the real embedder;
+    # the prefilter step (top_similar) is covered by test_novelty_prefilter.
+    result = evaluate_idea(IDEA, [], score_fn=score_fn, falsify_fn=falsify_fn,
                            k=2, store=store, record_gate_decision=rec)
 
     assert result["approved"] is False

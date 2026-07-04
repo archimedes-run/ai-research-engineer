@@ -29,6 +29,7 @@ from ai_research_engineer.agents.adk.loop_detection import LoopDetectionAgent
 from ai_research_engineer.agents.adk.review_confirmation import (
     create_falsifier_reverdict_agent,
     create_ideation_gate_agent,
+    create_prefilter_agent,
     create_review_confirmation_agent,
 )
 from ai_research_engineer.agents.adk.utils import (
@@ -889,6 +890,9 @@ def create_agent(
         description="Iteratively extracts or brainstorms research ideas based on the specified mode.",
         sub_agents=[
             idea_generator_agent,
+            # S2-2: rank recall candidates and hand the scorer the top-k prefiltered
+            # works (state["prefiltered_works"]).
+            create_prefilter_agent(),
             novelty_scorer_agent,
             # S2-4: full falsifier re-verdict loop (scorer re-runs on finds).
             falsifier_reverdict_agent,

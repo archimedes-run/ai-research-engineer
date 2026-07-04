@@ -25,6 +25,7 @@ from typing import Callable, List, Optional
 from ai_research_engineer.core.novelty.dedup import RejectedIdeaStore
 from ai_research_engineer.core.novelty.falsifier import run_falsifier_rounds
 from ai_research_engineer.core.novelty.gate import evaluate_novelty
+from ai_research_engineer.core.novelty.prefilter import top_similar
 
 
 logger = logging.getLogger(__name__)
@@ -64,16 +65,20 @@ def evaluate_idea(
         _emit(record_gate_decision, "rejected", f"duplicate of a rejected idea ({dup['cosine']}): {dup['reason']}")
         return decision
 
-    # 2) Score + gate.
-    verdict = evaluate_novelty(score_fn(idea, candidates), k)
+    # 2) Prefilter (S2-2) — the scorer/falsifier only ever see the top-k, exactly
+    #    like the live graph's PrefilterAgent (shared top_similar implementation).
+    prefiltered = top_similar(idea, candidates, k=k)
+
+    # 3) Score + gate.
+    verdict = evaluate_novelty(score_fn(idea, prefiltered), k)
     if not verdict.approved:
         store.record_rejection(idea, verdict.reason)
         _emit(record_gate_decision, "rejected", verdict.reason)
         return {"approved": False, "verdict": "reject", "reason": verdict.reason,
                 "killing_works": verdict.killing_works}
 
-    # 3) Falsifier rounds on an approve.
-    result = run_falsifier_rounds(idea, verdict, candidates, score_fn=score_fn, falsify_fn=falsify_fn, k=k)
+    # 4) Falsifier rounds on an approve.
+    result = run_falsifier_rounds(idea, verdict, prefiltered, score_fn=score_fn, falsify_fn=falsify_fn, k=k)
     if not result["approved"]:
         store.record_rejection(idea, result["reason"])
     _emit(record_gate_decision, "approved" if result["approved"] else "rejected", result["reason"])

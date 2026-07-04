@@ -8,7 +8,7 @@ of normal text output and does not have access to any tools.
 
 import json
 import logging
-from typing import Any, AsyncGenerator
+from typing import Any, AsyncGenerator, Optional
 
 from google.adk.agents import BaseAgent, InvocationContext
 from google.adk.agents.callback_context import CallbackContext
@@ -20,8 +20,10 @@ from typing_extensions import override
 
 from ai_research_engineer.agents.adk.loop_detection import LoopDetectionAgent
 from ai_research_engineer.agents.adk.utils import REVIEW_MODEL, get_generate_content_config
+from ai_research_engineer.core.config import get_prefilter_k
 from ai_research_engineer.core.novelty.falsifier import DEFAULT_MAX_ROUNDS, falsifier_flow
 from ai_research_engineer.core.novelty.gate import evaluate_novelty, ideation_gate_decision
+from ai_research_engineer.core.novelty.prefilter import top_similar
 from ai_research_engineer.prompts import load_prompt
 
 
@@ -200,6 +202,50 @@ def _decision_to_verdict(decision: dict) -> dict:
         "feedback": {"verdict": decision.get("verdict"), "reason": decision.get("reason"), "killing_works": killing},
         "falsifier_rounds": decision.get("falsifier_rounds"),
     }
+
+
+def _idea_from_state(state: dict) -> dict:
+    """Build the {title, description} the prefilter ranks against from state."""
+    raw = state.get("generated_ideas")
+    parsed = _parse_json_maybe(raw)
+    if parsed.get("title") or parsed.get("description"):
+        return {"title": parsed.get("title") or "", "description": parsed.get("description") or ""}
+    return {"title": "", "description": raw if isinstance(raw, str) else json.dumps(raw or "")}
+
+
+class PrefilterAgent(BaseAgent):
+    """S2-2 (live graph) — embedding prefilter between recall and the scorer.
+
+    Reads the recall candidates from ``state['recall_candidates']`` and the idea
+    from ``state['generated_ideas']``, ranks with the SHARED ``top_similar``, and
+    writes the top-k to ``state['prefiltered_works']`` — the exact key the scorer
+    prompt reads and the re-verdict agent re-injects into. Uses the same
+    ``top_similar`` implementation as ``pipeline.evaluate_idea`` (no parallel logic).
+    """
+
+    _k: Any = PrivateAttr()
+
+    def __init__(self, k: Optional[int] = None, name: str = "prefilter_agent"):
+        super().__init__(name=name, description="Ranks recall candidates and writes the top-k for the scorer.")
+        self._k = k
+
+    def _info(self, text: str) -> Event:
+        return Event(author=self.name, content=types.Content(role="model", parts=[types.Part(text=text)]),
+                     turn_complete=False)
+
+    @override
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        state = ctx.session.state
+        k = self._k if self._k is not None else get_prefilter_k()
+        candidates = _parse_candidates(state.get("recall_candidates"))
+        ranked = top_similar(_idea_from_state(state), candidates, k=k)
+        state["prefiltered_works"] = json.dumps(ranked)
+        yield self._info(f"🔎 Prefilter: {len(candidates)} recall candidates → top {len(ranked)} for the scorer.")
+
+
+def create_prefilter_agent(k: Optional[int] = None) -> PrefilterAgent:
+    """Factory for the S2-2 prefilter agent (sits between recall and the scorer)."""
+    return PrefilterAgent(k=k)
 
 
 class FalsifierReVerdictAgent(BaseAgent):

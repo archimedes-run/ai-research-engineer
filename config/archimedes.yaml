@@ -26,3 +26,6 @@ novelty:
   # cosine against a previously-rejected idea this session is auto-rejected
   # without spending scorer tokens. Env override: NOVELTY_DEDUP_THRESHOLD.
   dedup_threshold: 0.92
+  # Number of top-k prefiltered prior works handed to the scorer (S2-2).
+  # Env override: NOVELTY_PREFILTER_K.
+  prefilter_k: 12
