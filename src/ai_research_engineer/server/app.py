@@ -612,6 +612,67 @@ async def _run_agent(
     working_dir.mkdir(parents=True, exist_ok=True)
     start_time = datetime.now()
 
+    # Intake router (S0-5): reconcile the detected intent with research_mode
+    # BEFORE the workflow is built. Classification is fail-soft (an error just
+    # proceeds normally); the decision to switch/pause is then acted on below.
+    intake_intent = ""
+    intake_selected_mode = research_mode
+    intake_action = "proceed"
+    try:
+        from ai_research_engineer.core.intake import classify_intent, reconcile_mode
+
+        intake_intent = classify_intent(topic)
+        intake_selected_mode, intake_action = reconcile_mode(
+            intake_intent, research_mode, hitl_enabled=bool(hitl_enabled)
+        )
+    except Exception as _ie:
+        logger.warning("[Intake] classifier failed (fail-soft): %s", _ie)
+        intake_action = "proceed"
+
+    if intake_action != "proceed":
+        try:
+            intake_event = {
+                "type": "intake_decision",
+                "detected_intent": intake_intent,
+                "selected_mode": intake_selected_mode,
+                "action": intake_action,
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+            }
+            await queue.put(intake_event)
+            RunStore.append_event(session_id, intake_event)
+            logger.info(
+                "[Intake] intent=%s action=%s selected_mode=%s", intake_intent, intake_action, intake_selected_mode
+            )
+        except Exception as _ee:
+            logger.warning("[Intake] intake_decision emit failed (fail-soft): %s", _ee)
+
+    if intake_action == "switch":
+        # Autonomous: adopt the mode implied by the detected intent.
+        research_mode = intake_selected_mode
+    elif intake_action == "pause":
+        # HITL intake mismatch. The pre-workflow resume handshake is not wired yet
+        # (Stage 7), so fail SAFE: HALT before building the workflow rather than
+        # silently proceeding on the original mode (fail-open).
+        try:
+            terminal_event = {
+                "type": "message",
+                "content": (
+                    "Intake mismatch requires confirmation; resume not yet supported in HITL mode — "
+                    "re-run with the corrected mode or autonomous."
+                ),
+                "timestamp": datetime.now().strftime("%H:%M:%S"),
+            }
+            await queue.put(terminal_event)
+            RunStore.append_event(session_id, terminal_event)
+            RunStore.update_session(session_id, {"status": "failed", "completed_at": datetime.now().isoformat()})
+            await queue.put(None)  # close the SSE stream
+        except Exception as _pe:
+            logger.warning("[Intake] halt cleanup issue (fail-soft): %s", _pe)
+        _active_sessions.pop(session_id, None)
+        _active_tasks.pop(session_id, None)
+        logger.warning("[Intake] HITL intake mismatch — halting before workflow build.")
+        return
+
     # Build code graph before starting the agent (fail-soft)
     if use_graphify:
         try:

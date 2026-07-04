@@ -14,7 +14,7 @@ from google.genai import types
 from ai_research_engineer.agents.adk.event_compression import create_compression_callback
 from ai_research_engineer.agents.adk.loop_detection import LoopDetectionAgent
 from ai_research_engineer.agents.adk.review_confirmation import create_review_confirmation_agent
-from ai_research_engineer.agents.adk.utils import REVIEW_MODEL, get_generate_content_config
+from ai_research_engineer.agents.adk.utils import REVIEW_MODEL, get_generate_content_config, probe_tool_availability
 from ai_research_engineer.prompts import load_prompt
 
 
@@ -94,8 +94,8 @@ def make_implementation_agents(working_dir: str, tools: list):
     # Review Agent - Uses ADK with loop detection
     logger.info("[AgenticDS] Creating review agent")
 
-    # Load review prompt
-    review_prompt = load_prompt("coding_review")
+    # Load review prompt, stripping guidance for tools this runtime lacks (S0-7).
+    review_prompt = load_prompt("coding_review", tool_availability=probe_tool_availability())
 
     # Create compression callback for review agent
     review_compression_callback = create_compression_callback(

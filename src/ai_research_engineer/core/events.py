@@ -99,6 +99,80 @@ class CompletedEvent(BaseEvent):
     total_events: int = 0
     files_created: List[str] = field(default_factory=list)
     files_count: int = 0
+    # Set to "DRAFT_UNVERIFIED" when the paper_writing_loop exhausted without
+    # an approving review (S0-1). None (the default) means fully verified.
+    manuscript_status: Optional[str] = None
+
+
+@dataclass
+class GateDecisionEvent(BaseEvent):
+    """Typed outcome of a confirmation loop (S0-1 / S0-9).
+
+    Emitted whenever a NonEscalatingLoopAgent finishes: ``outcome`` is
+    "approved" when a confirmation agent escalated, or "exhausted" when the
+    loop hit ``max_iterations`` without approval.
+    """
+
+    type: Literal["gate_decision"] = "gate_decision"
+    loop: str = ""
+    outcome: str = ""
+    reason: str = ""
+
+
+@dataclass
+class StageStatusEvent(BaseEvent):
+    """Honest per-stage status from the orchestrator (S0-2 / S0-9).
+
+    ``status`` is "completed" (implementation approved) or "completed_unverified".
+    """
+
+    type: Literal["stage_status"] = "stage_status"
+    index: int = 0
+    status: str = ""
+
+
+@dataclass
+class ProgressHashEvent(BaseEvent):
+    """Per-iteration no-progress hash from the stage orchestrator (S0-3 / S0-9).
+
+    ``hash`` is a sha256 over the criteria met-bitmap, stage status vector, and
+    the (path, mtime, size) signature of files under workflow/ and results/.
+    Repeated identical hashes across iterations signal a stuck orchestration.
+    """
+
+    type: Literal["progress_hash"] = "progress_hash"
+    hash: str = ""
+    iteration: int = 0
+
+
+@dataclass
+class EvalResultEvent(BaseEvent):
+    """Sealed evaluation result for an evolution generation (S0-4 / S0-9).
+
+    ``score`` is ``None`` when the sealed ``eval.sh`` failed, timed out, or did
+    not (re)write results.json after the orchestrator started evaluating.
+    ``status`` is one of "success", "failed", or "timeout".
+    """
+
+    type: Literal["eval_result"] = "eval_result"
+    gen: int = 0
+    score: Optional[float] = None
+    status: str = ""
+    duration_s: float = 0.0
+
+
+@dataclass
+class IntakeDecisionEvent(BaseEvent):
+    """Intake router decision emitted before the workflow runs (S0-5 / S0-9).
+
+    ``detected_intent`` is one of replicate/novel/optimize/ambiguous;
+    ``action`` is one of switch/pause/warn/proceed.
+    """
+
+    type: Literal["intake_decision"] = "intake_decision"
+    detected_intent: str = ""
+    selected_mode: str = ""
+    action: str = ""
 
 
 @dataclass
@@ -137,6 +211,11 @@ StreamingEvent = (
     | CompletedEvent
     | VerificationEvent
     | HITLRequestEvent
+    | GateDecisionEvent
+    | StageStatusEvent
+    | ProgressHashEvent
+    | EvalResultEvent
+    | IntakeDecisionEvent
 )
 
 
@@ -152,6 +231,11 @@ EVENT_TYPE_MAP = {
     "completed": CompletedEvent,
     "verification": VerificationEvent,
     "hitl_request": HITLRequestEvent,
+    "gate_decision": GateDecisionEvent,
+    "stage_status": StageStatusEvent,
+    "progress_hash": ProgressHashEvent,
+    "eval_result": EvalResultEvent,
+    "intake_decision": IntakeDecisionEvent,
 }
 
 

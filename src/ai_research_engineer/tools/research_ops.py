@@ -17,14 +17,15 @@ from typing import List, Optional
 
 import arxiv
 import findpapers
-from semanticscholar import SemanticScholar
+
+from ai_research_engineer.tools.semantic_scholar import client as sch, enforce_rate_limit
 
 
 logger = logging.getLogger(__name__)
 
-# Initialize Semantic Scholar
-api_key = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
-sch = SemanticScholar(api_key=api_key)
+# Unified Semantic Scholar access (S0-8): shared client + shared limiter (also
+# used by semantic_scholar_ops). `sch` name is retained for the call sites and
+# for tests that patch it.
 
 
 
@@ -103,8 +104,9 @@ def build_citation_graph(paper_id: str, working_dir: str) -> str:
             paper_id = f"ARXIV:{paper_id.split('v')[0]}" 
 
         # 2. Fetch the target paper
+        enforce_rate_limit()
         p = sch.get_paper(
-            paper_id, 
+            paper_id,
             fields=['title', 'year', 'references.title', 'references.paperId', 'references.year', 
                     'citations.title', 'citations.paperId', 'citations.year']
         )
@@ -157,6 +159,7 @@ def build_citation_graph(paper_id: str, working_dir: str) -> str:
         all_neighbor_ids = ref_ids + cite_ids
         if all_neighbor_ids:
             try:
+                enforce_rate_limit()
                 neighbors_data = sch.get_papers(all_neighbor_ids, fields=['citations.paperId'])
                 for neighbor in neighbors_data:
                     if not neighbor: continue
@@ -201,6 +204,7 @@ def discover_high_impact_papers(query: str, limit: int = 5, min_citations: int =
     """
     logger.info(f"[Tool:discover_high_impact] Query: '{query}'")
     try:
+        enforce_rate_limit()
         results = sch.search_paper(
             query, limit=limit * 3, fields=['title', 'authors', 'year', 'citationCount', 'externalIds']
         )

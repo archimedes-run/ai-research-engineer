@@ -377,12 +377,29 @@ def stage_reflector_callback(callback_context: CallbackContext):
     state["high_level_stages"] = stages
 
 
+def classify_loop_outcome(approved: bool) -> str:
+    """Map a confirmation-loop result to a typed outcome (S0-1).
+
+    "approved" — a confirmation agent escalated (the loop exited early).
+    "exhausted" — ``max_iterations`` was reached without any approval.
+    """
+    return "approved" if approved else "exhausted"
+
+
 class NonEscalatingLoopAgent(LoopAgent):
-    """A loop agent that does not propagate escalate flags upward."""
+    """A loop agent that does not propagate escalate flags upward.
+
+    In addition to swallowing the escalate flag, this agent records a typed
+    outcome for the invocation (S0-1) into
+    ``ctx.session.state["<loop_name>_outcome"]`` and emits a structured
+    gate_decision event so downstream phases can branch on whether the gate
+    actually approved or merely ran out of iterations.
+    """
 
     @override
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         times_looped = 0
+        approved = False
         while not self.max_iterations or times_looped < self.max_iterations:
             for sub_agent in self.sub_agents:
                 should_exit = False
@@ -396,9 +413,45 @@ class NonEscalatingLoopAgent(LoopAgent):
                             break
 
                 if should_exit:
-                    return
+                    approved = True
+                    break
+            if approved:
+                break
             times_looped += 1
+
+        for event in self._record_outcome(ctx, classify_loop_outcome(approved)):
+            yield event
         return
+
+    def _record_outcome(self, ctx: InvocationContext, outcome: str) -> List[Event]:
+        """Persist the loop outcome to state and build a gate_decision event."""
+        state = ctx.session.state
+        loop_name = self.name
+        state[f"{loop_name}_outcome"] = outcome
+
+        if outcome == "approved":
+            reason = "A confirmation agent approved; the loop exited early."
+        else:
+            reason = f"Reached max_iterations ({self.max_iterations}) without approval."
+
+        # Record a structured gate decision for the streaming layer to surface
+        # as a typed GateDecisionEvent (mirrors the verification sidecar pattern).
+        decisions = state.get("_gate_decisions")
+        if not isinstance(decisions, list):
+            decisions = []
+        decisions.append({"loop": loop_name, "outcome": outcome, "reason": reason})
+        state["_gate_decisions"] = decisions
+
+        logger.info("[%s] gate_decision outcome=%s — %s", loop_name, outcome, reason)
+
+        text = f"\n\n🚦 **Gate decision** — loop `{loop_name}` outcome: **{outcome}**. {reason}\n\n"
+        return [
+            Event(
+                author=self.name,
+                content=types.Content(role="model", parts=[types.Part(text=text)]),
+                turn_complete=False,
+            )
+        ]
 
 
 def create_agent(
@@ -927,6 +980,8 @@ def create_agent(
         stage_reflector=stage_reflector,
         name="stage_orchestrator",
         description="Orchestrates stage-by-stage implementation with adaptive planning.",
+        working_dir=str(working_dir),
+        hitl_enabled=hitl_enabled,
     )
 
     # ------------------------- Root Workflow -------------------------

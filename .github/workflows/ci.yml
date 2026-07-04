@@ -36,6 +36,30 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
+  sabotage:
+    name: Sabotage — Stage 0 trust suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --extra dev
+
+      # Offline by design: no API keys are provided. The suite must run with no
+      # real LLM or network access. `--runxfail` is intentionally NOT passed —
+      # strict xfail means a Stage 0 feature landing without dropping its marker
+      # turns the unexpected pass into a CI failure, forcing the marker removal.
+      - name: Run sabotage suite
+        run: uv run pytest tests/sabotage -q --tb=short
+
   frontend:
     name: Frontend — type-check & build
     runs-on: ubuntu-latest

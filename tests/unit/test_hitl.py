@@ -47,6 +47,21 @@ def _make_agent(name: str, events=None):
     return _FakeSubAgent(name=name, events=events or [])
 
 
+class _MutatingAgent:
+    """Sub-agent stub that mutates session state when it runs (e.g. sets an outcome)."""
+
+    def __init__(self, name: str, mutation):
+        self.name = name
+        self._mutation = mutation
+        self.call_count = 0
+
+    async def run_async(self, ctx) -> AsyncGenerator:
+        self.call_count += 1
+        self._mutation(ctx.session.state)
+        if False:  # make this an async generator without yielding events
+            yield
+
+
 # ---------------------------------------------------------------------------
 # RunStore HITL methods
 # ---------------------------------------------------------------------------
@@ -389,6 +404,114 @@ class TestSEEKERBothModes:
             pass
 
         assert tree_agent.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Loop-outcome branching (S0-1)
+# ---------------------------------------------------------------------------
+
+
+class TestLoopOutcomeBranching:
+    def test_loop_outcome_action_pure(self):
+        from ai_research_engineer.agents.adk.hitl_sequential import loop_outcome_action
+
+        assert loop_outcome_action("ideation_loop", "exhausted") == "halt"
+        assert loop_outcome_action("paper_writing_loop", "exhausted") == "draft_unverified"
+        assert loop_outcome_action("ideation_loop", "approved") == "continue"
+        assert loop_outcome_action("some_other_loop", "exhausted") == "continue"
+        assert loop_outcome_action("ideation_loop", None) == "continue"
+
+    @pytest.mark.asyncio
+    async def test_autonomous_halt_when_ideation_exhausted(self):
+        """Autonomous: an exhausted ideation loop halts before planning runs."""
+        from unittest.mock import MagicMock
+
+        from ai_research_engineer.agents.adk.hitl_sequential import HITLSequentialAgent
+
+        ideation = _MutatingAgent(
+            "ideation_loop",
+            lambda s: s.__setitem__("ideation_loop_outcome", "exhausted"),
+        )
+        planning = _make_agent("high_level_planning_loop")
+
+        workflow = HITLSequentialAgent(sub_agents=[ideation, planning], hitl_enabled=False)
+        ctx = MagicMock()
+        ctx.session.state = {}
+        ctx.session.id = "sess-halt"
+
+        events = [ev async for ev in workflow._run_async_impl(ctx)]
+
+        assert ideation.call_count == 1
+        assert planning.call_count == 0  # halted before planning
+        texts = [p.text for e in events if e.content for p in e.content.parts if getattr(p, "text", None)]
+        assert any("halted" in t.lower() for t in texts)
+
+    @pytest.mark.asyncio
+    async def test_autonomous_draft_unverified_when_paper_exhausted(self):
+        """Autonomous: an exhausted paper loop tags manuscript but lets the run finish."""
+        from unittest.mock import MagicMock
+
+        from ai_research_engineer.agents.adk.hitl_sequential import HITLSequentialAgent
+
+        writer = _MutatingAgent(
+            "paper_writing_loop",
+            lambda s: s.__setitem__("paper_writing_loop_outcome", "exhausted"),
+        )
+        after = _make_agent("reference_verifier_agent")
+
+        workflow = HITLSequentialAgent(sub_agents=[writer, after], hitl_enabled=False)
+        state: dict = {}
+        ctx = MagicMock()
+        ctx.session.state = state
+        ctx.session.id = "sess-draft"
+
+        async for _ in workflow._run_async_impl(ctx):
+            pass
+
+        assert writer.call_count == 1
+        assert after.call_count == 1  # run still finishes
+        assert state["manuscript_status"] == "DRAFT_UNVERIFIED"
+
+    @pytest.mark.asyncio
+    async def test_supervised_pause_when_ideation_exhausted(self, tmp_path):
+        """Supervised: an exhausted ideation loop pauses (does not run planning)."""
+        from unittest.mock import MagicMock
+
+        from ai_research_engineer.agents.adk.hitl_sequential import HITLSequentialAgent
+        from ai_research_engineer.server.run_store import RunStore
+
+        RunStore.init(db_path=tmp_path / "test.db")
+        RunStore.save_session({
+            "session_id": "sess-pause-ideation",
+            "status": "running",
+            "title": "T",
+            "topic": "test",
+            "agent_type": "adk",
+            "started_at": datetime.now().isoformat(),
+        })
+
+        ideation = _MutatingAgent(
+            "ideation_loop",
+            lambda s: s.__setitem__("ideation_loop_outcome", "exhausted"),
+        )
+        planning = _make_agent("high_level_planning_loop")
+
+        workflow = HITLSequentialAgent(
+            sub_agents=[ideation, planning],
+            hitl_enabled=True,
+            gates={},
+        )
+        state: dict = {}
+        ctx = MagicMock()
+        ctx.session.state = state
+        ctx.session.id = "sess-pause-ideation"
+
+        with patch.object(workflow, "_build_context_md", return_value="# ctx"):
+            async for _ in workflow._run_async_impl(ctx):
+                pass
+
+        assert planning.call_count == 0
+        assert state.get("_hitl_paused") == "gate_ideation"
 
 
 # ---------------------------------------------------------------------------

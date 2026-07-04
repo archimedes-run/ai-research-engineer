@@ -22,10 +22,14 @@ from google.genai import types
 from ai_research_engineer.core.events import (
     CompletedEvent,
     ErrorEvent,
+    EvalResultEvent,
     FunctionCallEvent,
     FunctionResponseEvent,
+    GateDecisionEvent,
     HITLRequestEvent,
     MessageEvent,
+    ProgressHashEvent,
+    StageStatusEvent,
     UsageEvent,
     VerificationEvent,
     event_to_dict,
@@ -552,6 +556,65 @@ class AIEngineer:
             except Exception as _he:
                 logger.warning("HITL pause check failed (fail-soft): %s", _he)
 
+            # Emit structured gate_decision events recorded by the loop agents (S0-1).
+            try:
+                session = getattr(self, "session", None)
+                if session is not None:
+                    for decision in session.state.get("_gate_decisions", []) or []:
+                        gd_event = GateDecisionEvent(
+                            loop=decision.get("loop", ""),
+                            outcome=decision.get("outcome", ""),
+                            reason=decision.get("reason", ""),
+                            timestamp=datetime.now().strftime("%H:%M:%S.%f")[:-3],
+                        )
+                        yield event_to_dict(gd_event)
+            except Exception as _ge:
+                logger.warning("gate_decision emission failed (fail-soft): %s", _ge)
+
+            # Emit stage_status events recorded by the orchestrator (S0-2/S0-9).
+            try:
+                session = getattr(self, "session", None)
+                if session is not None:
+                    for ss in session.state.get("_stage_statuses", []) or []:
+                        ss_event = StageStatusEvent(
+                            index=ss.get("index", 0),
+                            status=ss.get("status", ""),
+                            timestamp=datetime.now().strftime("%H:%M:%S.%f")[:-3],
+                        )
+                        yield event_to_dict(ss_event)
+            except Exception as _se:
+                logger.warning("stage_status emission failed (fail-soft): %s", _se)
+
+            # Emit progress_hash events recorded by the stage orchestrator (S0-3).
+            try:
+                session = getattr(self, "session", None)
+                if session is not None:
+                    for ph in session.state.get("_progress_hashes", []) or []:
+                        ph_event = ProgressHashEvent(
+                            hash=ph.get("hash", ""),
+                            iteration=ph.get("iteration", 0),
+                            timestamp=datetime.now().strftime("%H:%M:%S.%f")[:-3],
+                        )
+                        yield event_to_dict(ph_event)
+            except Exception as _pe:
+                logger.warning("progress_hash emission failed (fail-soft): %s", _pe)
+
+            # Emit sealed eval_result events from the evolution loop (S0-4).
+            try:
+                session = getattr(self, "session", None)
+                if session is not None:
+                    for er in session.state.get("_eval_results", []) or []:
+                        er_event = EvalResultEvent(
+                            gen=er.get("gen", 0),
+                            score=er.get("score"),
+                            status=er.get("status", ""),
+                            duration_s=er.get("duration_s", 0.0),
+                            timestamp=datetime.now().strftime("%H:%M:%S.%f")[:-3],
+                        )
+                        yield event_to_dict(er_event)
+            except Exception as _ee:
+                logger.warning("eval_result emission failed (fail-soft): %s", _ee)
+
             # Emit VerificationEvent if the reference_verifier_agent ran
             try:
                 session = getattr(self, "session", None)
@@ -587,6 +650,12 @@ class AIEngineer:
                             relative_path = file_path.relative_to(self.working_dir)
                             files_created.append(str(relative_path))
 
+            # Surface an unverified manuscript on the final event (S0-1).
+            manuscript_status = None
+            session = getattr(self, "session", None)
+            if session is not None:
+                manuscript_status = session.state.get("manuscript_status")
+
             # Final completed event
             completed_event = CompletedEvent(
                 session_id=self.session_id,
@@ -594,6 +663,7 @@ class AIEngineer:
                 total_events=message_event_number,
                 files_created=files_created,
                 files_count=len(files_created),
+                manuscript_status=manuscript_status,
                 timestamp=datetime.now().strftime("%H:%M:%S.%f")[:-3],
             )
             yield event_to_dict(completed_event)

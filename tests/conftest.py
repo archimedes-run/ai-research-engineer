@@ -7,6 +7,19 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _reset_s2_rate_limiter():
+    """Reset the shared Semantic Scholar limiter before each test so a single
+    limited call never sleeps waiting on state left by a previous test."""
+    try:
+        from ai_research_engineer.tools import semantic_scholar
+
+        semantic_scholar._last_call = 0.0
+    except Exception:
+        pass
+    yield
+
+
 @pytest.fixture
 def tmp_working_dir():
     """Create a temporary working directory for tests."""

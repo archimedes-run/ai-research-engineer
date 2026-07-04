@@ -390,6 +390,234 @@ class TestOrchestratorTreeDualWrite:
 
 
 # ---------------------------------------------------------------------------
+# Honest stage status (S0-2)
+# ---------------------------------------------------------------------------
+
+
+class TestStageStatusHonesty:
+    """The stage dict must record 'completed' vs 'completed_unverified' honestly."""
+
+    def test_pure_status_derivation(self):
+        from ai_research_engineer.agents.adk.stage_orchestrator import (
+            derive_stage_status,
+            stage_completed_flag,
+        )
+
+        assert derive_stage_status("approved") == "completed"
+        assert derive_stage_status("exhausted") == "completed_unverified"
+        assert derive_stage_status(None) == "completed_unverified"
+        # Both terminal statuses mean the stage cycle finished (back-compat bool).
+        assert stage_completed_flag("completed") is True
+        assert stage_completed_flag("completed_unverified") is True
+        assert stage_completed_flag("pending") is False
+
+    def test_stage_unverified_when_impl_loop_not_approved(self):
+        """No implementation_loop_outcome -> stage 'completed_unverified', completed=True."""
+        orch = _make_full_orch(checker_met=True)
+        state = _full_run_state()
+        ctx = _make_ctx(state, session_id="orch-status-unverified")
+        asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        stage = state["high_level_stages"][0]
+        assert stage["status"] == "completed_unverified"
+        assert stage["completed"] is True  # legacy bool retained, derived
+
+    def test_stage_completed_when_impl_loop_approved(self):
+        """implementation_loop_outcome == 'approved' -> stage 'completed'."""
+
+        def impl_mutation(state):
+            state["implementation_summary"] = "Implemented successfully"
+            state["implementation_loop_outcome"] = "approved"
+
+        def checker_mutation(state):
+            for c in state.get("high_level_success_criteria", []):
+                c["met"] = True
+
+        orch = StageOrchestratorAgent(
+            implementation_loop=_FakeSubAgent("impl", state_mutation=impl_mutation),
+            criteria_checker=_FakeSubAgent("checker", state_mutation=checker_mutation),
+            stage_reflector=_FakeSubAgent("reflector"),
+        )
+        state = _full_run_state()
+        ctx = _make_ctx(state, session_id="orch-status-approved")
+        asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        stage = state["high_level_stages"][0]
+        assert stage["status"] == "completed"
+        assert stage["completed"] is True
+
+
+# ---------------------------------------------------------------------------
+# No-progress guard (S0-3)
+# ---------------------------------------------------------------------------
+
+
+class TestNoProgressGuard:
+    """A stuck orchestration (no disk/criteria change) must force reflection on
+    the 2nd identical iteration and terminate with partial results on the 3rd."""
+
+    def test_forces_reflection_then_terminates(self, tmp_path):
+        from ai_research_engineer.agents.adk.stage_orchestrator import (
+            FORCED_REFLECTION_INSTRUCTION,
+            StageOrchestratorAgent,
+        )
+
+        # Empty workflow/ and results/ -> the file signature is stable across iters.
+        (tmp_path / "workflow").mkdir()
+        (tmp_path / "results").mkdir()
+
+        def reopen(state):
+            # The reflector never accepts the stage as done, so remaining stages
+            # never empty and the status vector stays identical -> no progress.
+            for s in state.get("high_level_stages", []):
+                s["completed"] = False
+                s["status"] = "pending"
+
+        orch = StageOrchestratorAgent(
+            implementation_loop=_FakeSubAgent("impl"),  # writes nothing, sets no outcome
+            criteria_checker=_FakeSubAgent("checker"),  # criteria stay not-met
+            stage_reflector=_FakeSubAgent("reflector", state_mutation=reopen),
+            working_dir=str(tmp_path),
+        )
+
+        state = {
+            "high_level_stages": [{"index": 0, "title": "S0", "description": "d", "completed": False}],
+            "high_level_success_criteria": [{"index": 0, "criteria": "acc>0.9", "met": False}],
+            "stage_implementations": [],
+        }
+        ctx = _make_ctx(state, session_id="orch-no-progress")
+
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", tmp_path / "pipeline.db"):
+            events = asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        # progress_hash emitted each iteration; run stops at iteration 3 (not max).
+        hashes = state["_progress_hashes"]
+        assert [h["iteration"] for h in hashes] == [1, 2, 3]
+        assert len({h["hash"] for h in hashes}) == 1  # all identical -> no progress
+
+        # Forcing instruction injected on the 2nd identical iteration.
+        assert state["stage_reflector_forced_instruction"] == FORCED_REFLECTION_INSTRUCTION
+
+        # Gate events, in order: forced reflection (iter 2) then termination (iter 3).
+        outcomes = [g["outcome"] for g in state["_gate_decisions"] if g["loop"] == "stage_orchestrator"]
+        assert outcomes == ["no_progress_forced_reflection", "no_progress_terminated"]
+
+        # Emitted events carry the progress_hash and the partial-results termination.
+        texts = [e.content.parts[0].text for e in events if e.content and e.content.parts]
+        assert any("progress_hash" in t for t in texts)
+        assert any("No-progress termination" in t for t in texts)
+        assert any("partial results" in t.lower() for t in texts)
+
+    def test_reflector_action_resets_counter(self, tmp_path):
+        """A forced reflection that actually modifies the plan resets the counter,
+        so the run does NOT terminate next iteration — only if it gets stuck again."""
+        from ai_research_engineer.agents.adk.stage_orchestrator import StageOrchestratorAgent
+
+        (tmp_path / "workflow").mkdir()
+        (tmp_path / "results").mkdir()
+
+        acted = {"done": False}
+
+        def reflector(state):
+            # Always re-open the stage (stuck), BUT the FIRST time it is run under
+            # a forcing instruction, actually act: modify a stage description and
+            # report a non-empty stage_modifications. Subsequent forced runs report
+            # nothing, so the run eventually terminates.
+            for s in state.get("high_level_stages", []):
+                s["completed"] = False
+                s["status"] = "pending"
+            forced = bool(state.get("stage_reflector_forced_instruction"))
+            if forced and not acted["done"]:
+                state["high_level_stages"][0]["description"] += " [revised]"
+                state["stage_reflector_output"] = {"stage_modifications": [{"index": 0}], "new_stages": []}
+                acted["done"] = True
+            else:
+                state["stage_reflector_output"] = {"stage_modifications": [], "new_stages": []}
+
+        orch = StageOrchestratorAgent(
+            implementation_loop=_FakeSubAgent("impl"),
+            criteria_checker=_FakeSubAgent("checker"),
+            stage_reflector=_FakeSubAgent("reflector", state_mutation=reflector),
+            working_dir=str(tmp_path),
+        )
+
+        state = {
+            "high_level_stages": [{"index": 0, "title": "S0", "description": "d", "completed": False}],
+            "high_level_success_criteria": [{"index": 0, "criteria": "acc>0.9", "met": False}],
+            "stage_implementations": [],
+        }
+        ctx = _make_ctx(state, session_id="orch-reset")
+
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", tmp_path / "pipeline.db"):
+            asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        iters = [h["iteration"] for h in state["_progress_hashes"]]
+        outcomes = [g["outcome"] for g in state["_gate_decisions"] if g["loop"] == "stage_orchestrator"]
+
+        # The reflector acted (modified the description).
+        assert acted["done"] is True
+        assert "[revised]" in state["high_level_stages"][0]["description"]
+
+        # Force fires at iter 2 (acts -> reset), so the run does NOT terminate at
+        # iter 3. It gets stuck again, forces at iter 4 (no action), and only then
+        # terminates at iter 5.
+        assert iters == [1, 2, 3, 4, 5]
+        assert outcomes == [
+            "no_progress_forced_reflection",  # iter 2 — acted, counter reset
+            "no_progress_forced_reflection",  # iter 4 — no action
+            "no_progress_terminated",  # iter 5
+        ]
+
+    def test_no_progress_pauses_when_hitl(self, tmp_path):
+        """With hitl_enabled=True, the 3rd identical hash must PAUSE (set the same
+        state key HITLSequentialAgent uses) and must NOT emit the autonomous
+        partial-results terminal event."""
+        from ai_research_engineer.agents.adk.stage_orchestrator import StageOrchestratorAgent
+
+        (tmp_path / "workflow").mkdir()
+        (tmp_path / "results").mkdir()
+
+        def reopen(state):
+            for s in state.get("high_level_stages", []):
+                s["completed"] = False
+                s["status"] = "pending"
+
+        orch = StageOrchestratorAgent(
+            implementation_loop=_FakeSubAgent("impl"),
+            criteria_checker=_FakeSubAgent("checker"),
+            stage_reflector=_FakeSubAgent("reflector", state_mutation=reopen),
+            working_dir=str(tmp_path),
+            hitl_enabled=True,
+        )
+
+        state = {
+            "high_level_stages": [{"index": 0, "title": "S0", "description": "d", "completed": False}],
+            "high_level_success_criteria": [{"index": 0, "criteria": "acc>0.9", "met": False}],
+            "stage_implementations": [],
+        }
+        ctx = _make_ctx(state, session_id="orch-hitl-no-progress")
+
+        with patch("ai_research_engineer.core.argument_tree._DEFAULT_DB", tmp_path / "pipeline.db"):
+            events = asyncio.run(_drain(orch._run_async_impl(ctx)))
+
+        # Stopped on the 3rd identical hash.
+        assert [h["iteration"] for h in state["_progress_hashes"]] == [1, 2, 3]
+        outcomes = [g["outcome"] for g in state["_gate_decisions"] if g["loop"] == "stage_orchestrator"]
+        assert outcomes[-1] == "no_progress_terminated"
+
+        # Paused via the exact mechanism HITLSequentialAgent / api.py rely on.
+        assert state["_hitl_paused"] == "gate_no_progress"
+        assert state.get("_hitl_question")
+
+        # Must NOT emit the autonomous partial-results terminal event.
+        texts = [e.content.parts[0].text for e in events if e.content and e.content.parts]
+        assert not any("No-progress termination" in t for t in texts)
+        assert not any("partial results" in t.lower() for t in texts)
+        # A pause event is emitted instead.
+        assert any("No-progress pause" in t for t in texts)
+
+
+# ---------------------------------------------------------------------------
 # Failure isolation: tree errors must not affect orchestrator output
 # ---------------------------------------------------------------------------
 

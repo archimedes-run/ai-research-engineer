@@ -148,7 +148,12 @@ def mock_client(tmp_path, monkeypatch):
     # Patch run_async on the class so every instance uses the mock
     monkeypatch.setattr(api_mod.AIEngineer, "run_async", _canned_stream)
 
-    yield TestClient(app, raise_server_exceptions=True)
+    # Use TestClient as a context manager so its anyio portal / event loop stays
+    # alive across requests. Without it, the portal is torn down after each
+    # request and the background asyncio.create_task(_run_agent(...)) is
+    # cancelled mid-flight — the session would be stuck "running" forever.
+    with TestClient(app, raise_server_exceptions=True) as client:
+        yield client
 
     RunStore.DATA_DIR = original_data_dir
 
@@ -167,7 +172,10 @@ def crash_client(tmp_path, monkeypatch):
 
     monkeypatch.setattr(api_mod.AIEngineer, "run_async", _crashing_stream)
 
-    yield TestClient(app, raise_server_exceptions=True)
+    # Context manager keeps the portal/event loop alive so the background task
+    # runs to completion (here: crashes and marks the session "failed").
+    with TestClient(app, raise_server_exceptions=True) as client:
+        yield client
 
     RunStore.DATA_DIR = original_data_dir
 

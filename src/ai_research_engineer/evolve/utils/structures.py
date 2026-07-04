@@ -22,7 +22,10 @@ class Node:
         meta_info: Auxiliary metadata.
         id: Unique identifier assigned by the database.
         visit_count: Number of times the node has been sampled.
-        score: Scalar score used for ranking and sampling.
+        score: Scalar score used for ranking and sampling. ``None`` means the
+            node was never successfully evaluated (failed/timeout eval) and must
+            be skipped by samplers (S0-4).
+        status: Evaluation outcome — "success", "failed", or "timeout" (S0-4).
     """
 
     name: str = ""
@@ -35,7 +38,8 @@ class Node:
     meta_info: Dict[str, Any] = field(default_factory=dict)
     id: Optional[int] = None
     visit_count: int = 0
-    score: float = 0.0
+    score: Optional[float] = 0.0
+    status: Optional[str] = None
 
     def __post_init__(self):
         if not self.created_at:
@@ -55,6 +59,7 @@ class Node:
             "meta_info": self.meta_info,
             "visit_count": self.visit_count,
             "score": self.score,
+            "status": self.status,
         }
 
     @classmethod
@@ -72,6 +77,7 @@ class Node:
             meta_info=data.get("meta_info", {}),
             visit_count=data.get("visit_count", 0),
             score=data.get("score", 0.0),
+            status=data.get("status"),
         )
 
     def get_context_text(self) -> str:

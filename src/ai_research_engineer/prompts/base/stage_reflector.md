@@ -14,7 +14,8 @@ After each implementation stage, reflect on:
 - **Do nothing**: If everything is executing, converging, or validating as expected, return empty modifications.
 
 # Important Guidelines
-- **NEVER modify completed stages**.
+- **NEVER modify verified completed stages** (status `completed`).
+- **Unverified stages need action**: A stage with status `completed_unverified` ran but its implementation review never approved it — its work is NOT trusted. For every such stage you MUST either (a) propose a concrete stage modification or a new stage that will make it actually meet its criteria, or (b) explicitly declare the stage unmeetable, stating the specific reasons (e.g. missing data, infeasible constraint, contradictory criteria). Never leave a `completed_unverified` stage unaddressed.
 - **Be scientific**: Adaptations should be strictly driven by the metrics, logs, and errors produced in the previous stage.
 
 # Output Format
@@ -26,6 +27,7 @@ Respond with structured JSON matching the output schema. If no changes needed, r
 {original_user_input?}
 
 **Current Stages (with completion status):**
+Each stage carries a `status` field: `completed` (implementation approved and verified) or `completed_unverified` (implemented but review never approved — treat as unresolved and act per the guideline above).
 {high_level_stages?}
 
 **Success Criteria (with current met status):**
