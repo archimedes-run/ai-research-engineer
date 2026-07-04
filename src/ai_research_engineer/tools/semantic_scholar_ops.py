@@ -71,9 +71,20 @@ def search_papers(query: str, year: Optional[str] = None, min_citations: int = 0
                 }
                 papers.append(paper_dict)
                 if working_dir: _track_paper(working_dir, paper_dict, "search_papers")
-                
+
                 if len(papers) >= limit: break
-                
+
+        # S1-5: auto-upsert into the session literature index.
+        if working_dir and papers:
+            from ai_research_engineer.core.lit_index import record_papers
+            record_papers(
+                [
+                    {"id": p["paperId"], "title": p["title"], "abstract": p["abstract"],
+                     "source": "semantic_scholar", "url": p["url"], "year": p["year"]}
+                    for p in papers
+                ],
+                working_dir=working_dir,
+            )
         return json.dumps(papers, indent=2)
     except Exception as e:
         return f"Error: {e}"
@@ -99,6 +110,15 @@ def get_paper_details(paper_id: str, working_dir: str = "") -> str:
             "bibtex": p.citationStyles.get("bibtex") if p.citationStyles else None
         }
         if working_dir: _track_paper(working_dir, paper_dict, "get_paper_details")
+        # S1-5: auto-upsert into the session literature index.
+        if working_dir:
+            from ai_research_engineer.core.lit_index import record_papers
+            record_papers(
+                [{"id": paper_dict["paperId"], "title": paper_dict["title"],
+                  "abstract": paper_dict["abstract"], "source": "semantic_scholar",
+                  "url": paper_dict["url"], "year": paper_dict["year"]}],
+                working_dir=working_dir,
+            )
         return json.dumps(paper_dict, indent=2)
     except Exception as e:
         return f"Error getting paper details: {e}"

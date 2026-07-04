@@ -708,11 +708,17 @@ def create_agent(
     if not is_network_disabled():
         tools.append(fetch_url)
 
-    # Multi-source search tools (S1-3), built from the Stage 1 tool registry so
-    # each is included only when its requirements are met (e.g. web_search is
-    # absent unless a web provider is configured). Importing search_ops registers
-    # them; available_tools() returns the currently-available subset.
+    # Activate this run's session literature index (S1-5). Search/ingest tools
+    # auto-upsert into it, and search_session_literature reads from it.
+    from ai_research_engineer.core.lit_index import get_lit_index
+    get_lit_index(working_dir_str)
+
+    # Stage 1 registry tools, built from the tool registry so each is included
+    # only when its requirements are met (e.g. web_search is absent unless a web
+    # provider is configured). Importing the tool modules registers them;
+    # available_tools() resolves availability once and returns the usable subset.
     from ai_research_engineer.core.tool_registry import available_tools as _registry_available_tools
+    from ai_research_engineer.tools import lit_ops  # noqa: F401  (registers search_session_literature)
     from ai_research_engineer.tools import search_ops  # noqa: F401  (registers S1-3 tools)
 
     tools.extend(_registry_available_tools())

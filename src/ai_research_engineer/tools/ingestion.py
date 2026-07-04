@@ -182,6 +182,23 @@ def ingest_paper(paper_id: str, working_dir: str) -> Optional[List[Dict[str, Any
     (out_dir / "sections.json").write_text(json.dumps(sections, indent=2), encoding="utf-8")
     (out_dir / "full.md").write_text(md, encoding="utf-8")
     logger.info("[ingestion] %s -> %d sections", paper_id, len(sections))
+
+    # S1-5: auto-upsert this paper's abstract into the session literature index.
+    try:
+        abstract = next(
+            (s["markdown"] for s in sections if s["title"].lower() == "abstract"),
+            sections[0]["markdown"],
+        )
+        from ai_research_engineer.core.lit_index import record_papers
+
+        record_papers(
+            [{"id": paper_id, "title": paper_id, "abstract": abstract,
+              "source": "ingested", "url": None, "year": None}],
+            working_dir=working_dir,
+        )
+    except Exception as exc:  # indexing is best-effort
+        logger.debug("[ingestion] session literature record failed: %s", exc)
+
     return sections
 
 

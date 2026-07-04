@@ -11,7 +11,7 @@ Before you write ANY execution stages, you MUST read the Novelty Scorer's verifi
 **Action Steps**:
 1. Read the novelty JSON field: `mvpt_breakdown.verifiability.justification`
 2. Extract any mentions of prior work, known algorithms, or strong baselines
-3. Use `build_citation_graph` if you need to identify the exact SOTA method
+3. Call `search_session_literature` first to reuse papers already gathered this session; use `build_citation_graph` if you still need to identify the exact SOTA method
 4. **MANDATORY**: Your first implementation stage is SOTA Baseline Reproduction
 5. Only after baseline is successfully reproduced do you implement your novel method
 

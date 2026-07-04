@@ -23,6 +23,20 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = 30
 
 
+def _record_session_literature(docs: list) -> None:
+    """S1-5 auto-upsert: record results into the active session literature index.
+
+    These tools have no working_dir, so they target the active session index set
+    at agent construction. Best-effort and a no-op when no session is active.
+    """
+    try:
+        from ai_research_engineer.core.lit_index import record_papers
+
+        record_papers(docs)
+    except Exception as exc:  # never let indexing break a search
+        logger.debug("[search_ops] session literature record failed: %s", exc)
+
+
 # --------------------------------------------------------------------------- #
 # OpenAlex
 # --------------------------------------------------------------------------- #
@@ -67,6 +81,14 @@ def openalex_search(query: str, limit: int = 10, year_from: Optional[int] = None
             )
         if not results:
             return f"No OpenAlex results for '{query}'."
+        _record_session_literature(
+            [
+                {"id": r.get("doi") or r.get("title"), "title": r.get("title"),
+                 "abstract": r.get("abstract"), "source": "openalex",
+                 "url": r.get("doi"), "year": r.get("year")}
+                for r in results
+            ]
+        )
         return json.dumps(results, indent=2)
     except requests.exceptions.RequestException as e:
         return f"OpenAlex search failed (network error): {e}"
@@ -106,6 +128,14 @@ def paperswithcode_search(query: str, limit: int = 10) -> str:
             )
         if not results:
             return f"No Papers with Code results for '{query}'."
+        _record_session_literature(
+            [
+                {"id": r.get("url") or r.get("title"), "title": r.get("title"),
+                 "abstract": None, "source": "paperswithcode",
+                 "url": r.get("url"), "year": r.get("published")}
+                for r in results
+            ]
+        )
         return json.dumps(results, indent=2)
     except requests.exceptions.RequestException as e:
         return f"Papers with Code search failed (network error): {e}"
