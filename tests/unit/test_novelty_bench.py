@@ -30,15 +30,15 @@ def test_known_50_schema_and_composition():
     assert all(len(r["idea_description"]) > 40 for r in rows)
 
 
-def test_plausible_dataset_signed_off_and_valid():
+def test_plausible_dataset_is_draft_pending_expansion():
     header, rows = B.load_dataset(_DATASETS / "plausible_30.jsonl")
-    # Signed off after per-row literature review (22 removed; see
-    # PLAUSIBLE_SIGNOFF_NOTES.md). Every remaining row is well-formed.
-    assert B.signed_off(header) is True
-    assert header.get("signed_off_count") == len(rows)
-    assert B.validate_rows(rows, "plausible") == []
+    # After review, 22 rows had prior art and 4 were close-calls, leaving 4
+    # high-confidence-open rows. The set is DRAFT (not signed off) and must be
+    # expanded by the maintainer to a robust N before any FRR is reported.
+    assert B.signed_off(header) is False           # blocks the live run
+    assert header.get("confident_count") == len(rows)
+    assert B.validate_rows(rows, "plausible") == []  # the remaining rows are well-formed
     assert all(r.get("rationale") and r.get("confidence") for r in rows)
-    assert len(rows) >= 5  # small but clean denominator is expected/acceptable
 
 
 # --------------------------------------------------------------------------- #

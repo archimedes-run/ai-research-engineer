@@ -16,15 +16,32 @@ labeled benchmark.
   `confidence` and a `rationale`. The first line is a header
   `{"__meta__": true, "SIGNED_OFF": ..., ...}`.
 
-### Sign-off status (maintainer)
+### Sign-off status (maintainer) — DRAFT, needs expansion
 
-**SIGNED OFF (2026-07-05), N = 8.** The set started as 30 candidate rows;
-**22 were removed** after a per-row literature review found clear or close prior
-art (the LLM-assisted curation of "genuinely open" was weak — see
-`PLAUSIBLE_SIGNOFF_NOTES.md` for each decision + killer). FRR is now computed
-against **N = 8** (small but clean — the honesty of the denominator matters more
-than its size). Until a dataset is signed off (`SIGNED_OFF: true`), the harness
-prints a loud DRAFT warning and its false-rejection numbers are not valid.
+**Not signed off. Current N = 4 high-confidence-open rows.** The set started as
+30 LLM-proposed candidates; a per-row literature review found **22 had prior
+art** and **4 more were honest close-calls**, leaving 4 confident rows. An
+attempt to rebuild by LLM-generating new candidates and search-verifying each hit
+**0/6** (dense field). Full record in `PLAUSIBLE_SIGNOFF_NOTES.md`.
+
+N=4 is too small to report an FRR against (1 wrong = 25%), so the dataset is left
+**DRAFT** (the harness warns and full-mode is blocked). **Before the CC-2.7 live
+run, expand it** with maintainer-proposed rows — your own-subfield prior is the
+reliable one. Then set `SIGNED_OFF: true`.
+
+To add a row (propose from your own knowledge, then **search-verify before
+adding** — discard anything with a core-doing prior work):
+
+```json
+{"id": "p_<slug>", "idea_title": "...", "idea_description": "one specific,
+ mechanism-level open direction", "ground_truth": "approve",
+ "confidence": "high|medium|low",
+ "rationale": "the closest work you found and the concrete reason the idea is
+ not it", "category": "<subfield>"}
+```
+
+Aim for ~20–24 rows; keep each individually verified. The 27%→0/6 curation
+failure above is *the* argument for this discipline (and a citable Stage 2 result).
 
 ## Harness (`run_novelty_bench.py`)
 

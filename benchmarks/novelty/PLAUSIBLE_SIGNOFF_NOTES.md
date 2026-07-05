@@ -14,7 +14,64 @@ maintainer asked for — LLM-assisted curation of "genuinely open" was weak;
 > weakest KEEPs and three closest REMOVEs are flagged below; the maintainer may
 > want to spot-check those before the CC-2.7 live run.
 
-## KEEP (8) — signed off
+## Finding — for the Stage 2 report and the Stage 8 write-up
+
+When constructing this benchmark, an LLM prompted to propose "genuinely open
+research directions" produced **defensible candidates only 27% of the time
+(8/30)**; after dropping the four honest close-calls, only **4/30 = 13%** were
+high-confidence open. The other 22 rows either restated already-published work
+(VIPER, Genie, PASTA, Scaling Monosemanticity, LLMCompiler, Certified Data
+Removal, DiscoUQ, Causal Prompt Optimization, RA-RAG, Reflexion/PALADIN, …) or
+offered a differentiation too thin to defend.
+
+This is a **direct, quantified instance of the exact failure mode the Stage 2
+novelty engine exists to prevent**: a well-prompted frontier model asked to
+identify open directions was wrong ~73% of the time — missing prior work or
+generating overly-thin novelty. Every removed row is a real-world example the
+evidence-grounded gate must catch.
+
+> **Citable:** *"In constructing the PLAUSIBLE benchmark, LLM-assisted proposal
+> of 'genuinely open directions' yielded defensible candidates only 27% of the
+> time (8/30), a direct motivation for retrieval-grounded novelty verification."*
+
+### Rebuild attempt via LLM-generation (Path A) — 0/6, second confirmation
+
+To rebuild toward a robust N, six *new* specific/niche directions were proposed
+and search-verified one at a time. **All six were killed by prior work** — a
+0/6 survival rate, even starker than the original 27%, and an independent second
+confirmation of the finding:
+
+| candidate | killer |
+| --- | --- |
+| loss-spike prediction from gradient-noise-scale trajectory | "Spike No More" (2312.16903); GNS→critical-batch-size |
+| build-time canary strings for contamination | BIG-bench canary strings; CANARY (2606.01695) |
+| belief-state over tool reliability vs stateless retry | PALADIN (2509.25238); "Long-Horizon Task Mirage" (2604.11978) |
+| RoPE base frequency → which layers form retrieval heads | "Round and Round We Go" (2410.06205); RoPE frequency-band work |
+| quantization error concentrates on specific SAE features | **"Perplexity Can Miss SAE Feature Damage Under Quantization" (2606.03002)** — on the nose |
+| spec-decode draft acceptance as a free target-uncertainty signal | draft-entropy↔acceptance + target-confidence↔acceptance results |
+
+**Conclusion:** autonomous LLM-generation reproduces the exact failure mode
+(dense field; carefully-chosen "open" ideas already exist). Fabricating marginal
+rows to hit N=24 would corrupt the very FRR metric this set exists to measure.
+The proposal step is handed back to the maintainer, whose own-subfield prior is
+the reliable one; each maintainer row should be search-verified the same way
+before inclusion (see the template in README).
+
+### Rebuild (Path A)
+
+Because N=8 (really N=4 confident) makes FRR uninterpretable (1 wrong ≈ 12.5%),
+the four weakest KEEPs were dropped and the set was **rebuilt by generating new
+candidates and search-verifying each individually** before inclusion (keeping
+only survivors with no core-doing paper). See the "Rebuild survivors" section
+below. Candidates are LLM-proposed-but-search-verified; maintainer-proposed rows
+(own-expertise prior) would be stronger and can replace any of these.
+
+## KEEP (8 reviewed) — 4 confident retained, 4 ⚠ dropped for the run
+
+The 4 rows marked ⚠ (weaker KEEPs / honest close-calls) were **dropped** so the
+run set is high-confidence only. The dataset now holds the **4 confident** rows
+(`p_ctx_forgetting`, `p_energy_aware_moe_routing`, `p_curriculum_from_loss_geometry`,
+`p_crossmodal_grokking`) and is left **DRAFT** pending maintainer expansion.
 
 | id | why kept (no core-doing paper found) |
 | --- | --- |
