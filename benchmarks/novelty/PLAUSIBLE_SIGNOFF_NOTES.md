@@ -1,4 +1,4 @@
-# PLAUSIBLE-30 sign-off notes
+# PLAUSIBLE sign-off notes (started as PLAUSIBLE-30)
 
 Reviewer: automated literature review (web search per row), 2026-07-05.
 Method: for each row, searched for a prior work that does the idea's **core**
@@ -6,9 +6,34 @@ contribution. KEEP only when no core-doing paper was found and the idea has a
 defensible differentiation from the closest work. REMOVE when a paper does the
 core, or when the differentiation is too thin to defend (ambiguity = noise).
 
-**Result: 8 KEEP / 22 REMOVE.** The low keep-rate is itself the signal the
-maintainer asked for — LLM-assisted curation of "genuinely open" was weak;
-~73% of the candidate rows had clear or close prior art as of July 2026.
+## Final scope (truthful count breakdown)
+
+```
+30  candidate rows reviewed (LLM-proposed)
+-22  REMOVED — a specific killer paper does the core, or differentiation too thin
+  8  passed first-pass review
+ -4  DROPPED as honest close-calls (coin-flip rows the process is meant to catch)
+  4  retained — high-confidence-open
+```
+
+**Signed-off scope: N = 4, DRAFT (SIGNED_OFF: false).** N=4 is too small to
+report an FRR against (1 wrong = 25%), so the dataset is left DRAFT and the
+harness blocks the live run until the maintainer expands it (see README).
+
+Rows retained: `p_ctx_forgetting`, `p_energy_aware_moe_routing`,
+`p_curriculum_from_loss_geometry`, `p_crossmodal_grokking`.
+
+Rows dropped as close-calls (removed from the run set): `p_compositional_eval_gen`,
+`p_units_aware_reasoning`, `p_uncertainty_from_kv`, `p_hardware_aware_quant_search`.
+
+The low keep-rate (**8/30 = 27%** first-pass; **4/30 = 13%** high-confidence) is
+itself the signal — LLM-assisted curation of "genuinely open" was weak; ~73% of
+candidates had clear or close prior art as of July 2026.
+
+> This file is preserved as an audit artifact: each REMOVE names a specific
+> killer, so a v2 smoke test over these ideas doubles as a sanity check on v2
+> itself (it should reject the REMOVEs and surface those killers) and as Stage 5
+> ideation-memory substrate.
 
 > Caveat: this is a search-based proxy for a domain expert's judgment. The three
 > weakest KEEPs and three closest REMOVEs are flagged below; the maintainer may
