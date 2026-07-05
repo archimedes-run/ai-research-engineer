@@ -30,14 +30,15 @@ def test_known_50_schema_and_composition():
     assert all(len(r["idea_description"]) > 40 for r in rows)
 
 
-def test_plausible_30_is_draft_until_signed_off():
+def test_plausible_dataset_signed_off_and_valid():
     header, rows = B.load_dataset(_DATASETS / "plausible_30.jsonl")
-    assert len(rows) == 30
+    # Signed off after per-row literature review (22 removed; see
+    # PLAUSIBLE_SIGNOFF_NOTES.md). Every remaining row is well-formed.
+    assert B.signed_off(header) is True
+    assert header.get("signed_off_count") == len(rows)
     assert B.validate_rows(rows, "plausible") == []
-    # DRAFT gate: header present, SIGNED_OFF false -> harness must warn/not report.
-    assert header.get("dataset") == "plausible_30"
-    assert B.signed_off(header) is False
     assert all(r.get("rationale") and r.get("confidence") for r in rows)
+    assert len(rows) >= 5  # small but clean denominator is expected/acceptable
 
 
 # --------------------------------------------------------------------------- #

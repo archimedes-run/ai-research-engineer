@@ -11,18 +11,20 @@ labeled benchmark.
   with no flagship paper). Each row: `{id, idea_title, idea_description,
   ground_truth: "reject", killing_work: {title, url}, category}`. Descriptions
   are paraphrases, never the verbatim abstract.
-- **`plausible_30.jsonl`** — 30 genuinely open / very-recent directions → ground
+- **`plausible_30.jsonl`** — genuinely open / very-recent directions → ground
   truth **approve** (must not be rejected for prior art). Each row carries a
-  `confidence` and a `rationale`. **This dataset is DRAFT**: its first line is a
-  header `{"__meta__": true, "SIGNED_OFF": false, ...}`.
+  `confidence` and a `rationale`. The first line is a header
+  `{"__meta__": true, "SIGNED_OFF": ..., ...}`.
 
-### Signing off PLAUSIBLE-30 (maintainer)
+### Sign-off status (maintainer)
 
-The PLAUSIBLE-30 false-rejection numbers are **not valid** until a maintainer
-reviews each row's rationale (confirming it is genuinely open, not already
-published) and sets the header's `SIGNED_OFF` to `true`. Until then the harness
-prints a loud DRAFT warning. Signing off is part of **CC-2.7** (the live run),
-not S2-7.
+**SIGNED OFF (2026-07-05), N = 8.** The set started as 30 candidate rows;
+**22 were removed** after a per-row literature review found clear or close prior
+art (the LLM-assisted curation of "genuinely open" was weak — see
+`PLAUSIBLE_SIGNOFF_NOTES.md` for each decision + killer). FRR is now computed
+against **N = 8** (small but clean — the honesty of the denominator matters more
+than its size). Until a dataset is signed off (`SIGNED_OFF: true`), the harness
+prints a loud DRAFT warning and its false-rejection numbers are not valid.
 
 ## Harness (`run_novelty_bench.py`)
 
