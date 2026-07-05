@@ -71,8 +71,11 @@ def evaluate_idea(
     #    like the live graph's PrefilterAgent (shared top_similar implementation).
     prefiltered = top_similar(idea, candidates, k=k)
 
-    # 3) Score + gate.
-    verdict = evaluate_novelty(score_fn(idea, prefiltered), k)
+    # 3) Score + gate. The gate's expected table size is the number of works
+    #    actually handed to the scorer (len(prefiltered)), not the cap k — so a
+    #    novel idea with sparse prior art is not falsely rejected as "incomplete".
+    k_eff = len(prefiltered)
+    verdict = evaluate_novelty(score_fn(idea, prefiltered), k_eff)
     if not verdict.approved:
         store.record_rejection(idea, verdict.reason)
         _emit(record_gate_decision, "rejected", verdict.reason)
@@ -80,7 +83,7 @@ def evaluate_idea(
                 "killing_works": verdict.killing_works, "table": verdict.table, "prefiltered": prefiltered}
 
     # 4) Falsifier rounds on an approve.
-    result = run_falsifier_rounds(idea, verdict, prefiltered, score_fn=score_fn, falsify_fn=falsify_fn, k=k)
+    result = run_falsifier_rounds(idea, verdict, prefiltered, score_fn=score_fn, falsify_fn=falsify_fn, k=k_eff)
     if not result["approved"]:
         store.record_rejection(idea, result["reason"])
     # Ranking inputs for the tournament (S2-6): the approve table + prefilter scores.

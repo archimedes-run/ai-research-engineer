@@ -72,6 +72,28 @@ def _run_initial_scorer(scorer, ctx):
 
 
 # --------------------------------------------------------------------------- #
+# sparse prior art (fewer prefiltered works than the cap) must NOT be rejected
+# as "incomplete differentiation" — the gate's expected size is len(prefiltered).
+# --------------------------------------------------------------------------- #
+def test_sparse_prior_art_is_not_falsely_incomplete():
+    # 3 prefiltered works, a COMPLETE 3-row clean table, but the configured cap
+    # is 12. With the fix, k = len(prefiltered) = 3 -> APPROVE (not incomplete).
+    scorer = FakeLlmAgent(
+        "novelty_scorer_feedback",
+        [json.dumps({"verdict": "approve",
+                     "differentiation_table": [_row("C0", "none"), _row("C1", "partial"), _row("C2", "none")]})],
+    )
+    falsifier = FakeLlmAgent("novelty_falsifier_feedback", [_clean_json(), _clean_json()])
+
+    ctx, state = _new_ctx([{"work_id": "C0"}, {"work_id": "C1"}, {"work_id": "C2"}])  # only 3
+    _run_initial_scorer(scorer, ctx)
+    _drain(create_falsifier_reverdict_agent(scorer, falsifier, k=12)._run_async_impl(ctx))  # cap 12
+
+    assert state["novelty_verdict"]["approved"] is True
+    assert state["novelty_verdict"]["reason"] != "incomplete differentiation"
+
+
+# --------------------------------------------------------------------------- #
 # approve -> falsifier finds -> re-score(injected) -> reject  (2 scorer calls)
 # --------------------------------------------------------------------------- #
 def test_graph_finds_then_rescore_reject_reaches_gate_with_killer():

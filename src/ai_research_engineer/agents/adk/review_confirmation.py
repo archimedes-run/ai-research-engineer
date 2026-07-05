@@ -156,6 +156,18 @@ class ReviewConfirmationOutput(BaseModel):
 REVIEW_CONFIRMATION_OUTPUT_SCHEMA = ReviewConfirmationOutput
 
 
+def _effective_k(state: dict, default_k: int) -> int:
+    """The gate's expected table size is the number of works the scorer was
+    actually handed — ``len(prefiltered_works)`` — not a fixed constant. A novel
+    idea with sparse prior art (few prefiltered works) must not be rejected as
+    'incomplete' just for having fewer than the configured cap. When no prefilter
+    ran (standalone gate), fall back to ``default_k``."""
+    raw = state.get("prefiltered_works")
+    if raw is None:
+        return default_k
+    return len(_parse_candidates(raw))
+
+
 def _compute_novelty_verdict(state: dict, k: int) -> dict:
     """Parse the scorer output from state and return the code-authoritative
     ideation verdict (also cached in ``state['novelty_verdict']``)."""
@@ -168,7 +180,7 @@ def _compute_novelty_verdict(state: dict, k: int) -> dict:
             scorer_output = {}
     if not isinstance(scorer_output, dict):
         scorer_output = {}
-    verdict = ideation_gate_decision(scorer_output, k)
+    verdict = ideation_gate_decision(scorer_output, _effective_k(state, k))
     state["novelty_verdict"] = verdict
     return verdict
 
@@ -436,17 +448,19 @@ class FalsifierReVerdictAgent(BaseAgent):
     async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
         state = ctx.session.state
         initial = _parse_json_maybe(state.get("novelty_scorer_feedback"))
-        base = evaluate_novelty(initial, self._k)
+        # Expected table size = works actually handed to the scorer, not a fixed cap.
+        k = _effective_k(state, self._k)
+        base = evaluate_novelty(initial, k)
 
         if not base.approved:
             # A scorer REJECT stands; the falsifier only probes approvals.
-            state["novelty_verdict"] = ideation_gate_decision(initial, self._k)
+            state["novelty_verdict"] = ideation_gate_decision(initial, k)
             yield self._info("🔬 Falsifier skipped — scorer did not approve.")
             return
 
         idea = {"generated_ideas": state.get("generated_ideas")}
         candidates = _parse_candidates(state.get("prefiltered_works"))
-        flow = falsifier_flow(idea, base, candidates, self._k, DEFAULT_MAX_ROUNDS)
+        flow = falsifier_flow(idea, base, candidates, k, DEFAULT_MAX_ROUNDS)
         decision = None
         try:
             request = flow.send(None)
