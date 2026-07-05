@@ -14,6 +14,7 @@ After each implementation stage, reflect on:
 - **Do nothing**: If everything is executing, converging, or validating as expected, return empty modifications.
 
 # Important Guidelines
+- **Runner-up pivot (S2-6)**: If **Stage 1** of the current plan fails **terminally** (its core hypothesis is unimplementable or invalidated — not a fixable hiccup) and an ideation runner-up idea is available in `{ideation_runner_up?}`, pivoting the plan to that runner-up idea is an **allowed remediation**. Prefer a concrete fix first; propose the pivot only when Stage 1's premise itself is dead.
 - **NEVER modify verified completed stages** (status `completed`).
 - **Unverified stages need action**: A stage with status `completed_unverified` ran but its implementation review never approved it — its work is NOT trusted. For every such stage you MUST either (a) propose a concrete stage modification or a new stage that will make it actually meet its criteria, or (b) explicitly declare the stage unmeetable, stating the specific reasons (e.g. missing data, infeasible constraint, contradictory criteria). Never leave a `completed_unverified` stage unaddressed.
 - **Be scientific**: Adaptations should be strictly driven by the metrics, logs, and errors produced in the previous stage.
@@ -25,6 +26,9 @@ Respond with structured JSON matching the output schema. If no changes needed, r
 
 **Original Research Topic:**
 {original_user_input?}
+
+**Ideation Runner-Up (available pivot if Stage 1 fails terminally, S2-6):**
+{ideation_runner_up?}
 
 **Current Stages (with completion status):**
 Each stage carries a `status` field: `completed` (implementation approved and verified) or `completed_unverified` (implemented but review never approved — treat as unresolved and act per the guideline above).

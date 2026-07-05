@@ -16,6 +16,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import time
@@ -41,6 +42,21 @@ PAIRS = [
     ("compound scaling of depth width and resolution for convolutional networks", "efficientnet"),
     ("reducing internal covariate shift with batch normalization", "batch normalization"),
 ]
+
+# --------------------------------------------------------------------------- #
+# S2-0: freeze guard. The 10 pairs above are a frozen benchmark. Changing any
+# query/target must be a deliberate, documented act — update FROZEN_PAIRS_SHA to
+# the new digest AND add a dated CHANGELOG entry (with that digest) to
+# benchmarks/knowledge/README.md. The guard test (tests/unit/test_retrieval_freeze.py)
+# fails otherwise, so tuning queries after seeing misses always leaves a trail.
+FROZEN_PAIRS_SHA = "a5f288316a4a73abe8699752f422e9c9041aa75301074aba9c43213e3b4f1966"
+
+
+def frozen_pairs_sha() -> str:
+    """Canonical sha256 of the frozen (query, target) pairs."""
+    canon = json.dumps([[q, t] for q, t in PAIRS], ensure_ascii=False)
+    return hashlib.sha256(canon.encode("utf-8")).hexdigest()
+
 
 _NORM = re.compile(r"[^a-z0-9 ]+")
 

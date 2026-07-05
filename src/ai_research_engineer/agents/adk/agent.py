@@ -26,7 +26,13 @@ from typing_extensions import override
 from ai_research_engineer.agents.adk.event_compression import create_compression_callback
 from ai_research_engineer.agents.adk.implementation_loop import make_implementation_agents
 from ai_research_engineer.agents.adk.loop_detection import LoopDetectionAgent
-from ai_research_engineer.agents.adk.review_confirmation import create_review_confirmation_agent
+from ai_research_engineer.agents.adk.review_confirmation import (
+    create_falsifier_reverdict_agent,
+    create_ideation_gate_agent,
+    create_ideation_tournament_agent,
+    create_prefilter_agent,
+    create_review_confirmation_agent,
+)
 from ai_research_engineer.agents.adk.utils import (
     DEFAULT_MODEL,
     REVIEW_MODEL,
@@ -854,13 +860,51 @@ def create_agent(
         after_agent_callback=scorer_compression,
     )
 
+    # S2-4: adversarial falsifier — runs after the scorer, tries to find a prior
+    # work that kills an approved idea (a `core` overlap the table missed).
+    logger.info(f"[AIResearcher] Creating adversarial novelty falsifier with model={REVIEW_MODEL}")
+    novelty_falsifier_agent = LoopDetectionAgent(
+        name="novelty_falsifier_agent",
+        model=REVIEW_MODEL,
+        description="Adversarially searches for a prior work that kills an approved idea.",
+        instruction=load_prompt("novelty_falsifier", domain),
+        tools=tools,
+        output_key="novelty_falsifier_feedback",
+        planner=BuiltInPlanner(
+            thinking_config=types.ThinkingConfig(include_thoughts=True, thinking_budget=-1),
+        ),
+        generate_content_config=get_generate_content_config(temperature=0.0),
+        after_agent_callback=create_compression_callback(event_threshold=40, overlap_size=20),
+    )
+
+    # S2-4: the re-verdict agent sits between the scorer and the gate. On a scorer
+    # APPROVE it drives the shared falsifier control flow — re-invoking the
+    # falsifier and scorer on the augmented candidate set (up to 2 rounds) within
+    # the SAME iteration — and writes the final verdict for the gate. The falsifier
+    # is driven internally here, not as a direct loop sub-agent.
+    falsifier_reverdict_agent = create_falsifier_reverdict_agent(
+        novelty_scorer_agent, novelty_falsifier_agent, k=12
+    )
+
+    # S2-6: the tournament evaluates 4-6 ideas per round against ONE shared recall
+    # corpus, driving prefilter -> scorer -> falsifier re-verdict per idea, and
+    # picks the ranked winner (runner-up stored in state). It replaces the
+    # per-single-idea [prefilter, scorer, reverdict] chain; the code gate still
+    # reads the final verdict and sets loop exit.
+    ideation_tournament_agent = create_ideation_tournament_agent(
+        create_prefilter_agent(), novelty_scorer_agent, falsifier_reverdict_agent,
+        k=12, working_dir=str(working_dir),
+    )
+
     ideation_loop = NonEscalatingLoopAgent(
         name="ideation_loop",
         description="Iteratively extracts or brainstorms research ideas based on the specified mode.",
         sub_agents=[
             idea_generator_agent,
-            novelty_scorer_agent,
-            create_review_confirmation_agent(auto_exit_on_completion=True, prompt_name="ideation_review_confirmation"),
+            ideation_tournament_agent,
+            # S2-3: the ideation novelty gate is CODE-ONLY — reads the final verdict
+            # and sets loop exit directly.
+            create_ideation_gate_agent(k=12),
         ],
         max_iterations=5,
     )

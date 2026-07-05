@@ -6,15 +6,26 @@ loop based on the review feedback. It uses structured output (output_schema) ins
 of normal text output and does not have access to any tools.
 """
 
+import json
 import logging
+from pathlib import Path
+from typing import Any, AsyncGenerator, Optional
 
+from google.adk.agents import BaseAgent, InvocationContext
 from google.adk.agents.callback_context import CallbackContext
+from google.adk.events import Event, EventActions
 from google.adk.planners import BuiltInPlanner
 from google.genai import types
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
+from typing_extensions import override
 
 from ai_research_engineer.agents.adk.loop_detection import LoopDetectionAgent
 from ai_research_engineer.agents.adk.utils import REVIEW_MODEL, get_generate_content_config
+from ai_research_engineer.core.config import get_prefilter_k
+from ai_research_engineer.core.novelty.falsifier import DEFAULT_MAX_ROUNDS, falsifier_flow
+from ai_research_engineer.core.novelty.gate import evaluate_novelty, ideation_gate_decision
+from ai_research_engineer.core.novelty.prefilter import top_similar
+from ai_research_engineer.core.novelty.tournament import build_audit, select_winner
 from ai_research_engineer.prompts import load_prompt
 
 
@@ -143,6 +154,418 @@ class ReviewConfirmationOutput(BaseModel):
 
 # Keep for backwards compatibility
 REVIEW_CONFIRMATION_OUTPUT_SCHEMA = ReviewConfirmationOutput
+
+
+def _effective_k(state: dict, default_k: int) -> int:
+    """The gate's expected table size is the number of works the scorer was
+    actually handed — ``len(prefiltered_works)`` — not a fixed constant. A novel
+    idea with sparse prior art (few prefiltered works) must not be rejected as
+    'incomplete' just for having fewer than the configured cap. When no prefilter
+    ran (standalone gate), fall back to ``default_k``."""
+    raw = state.get("prefiltered_works")
+    if raw is None:
+        return default_k
+    return len(_parse_candidates(raw))
+
+
+def _compute_novelty_verdict(state: dict, k: int) -> dict:
+    """Parse the scorer output from state and return the code-authoritative
+    ideation verdict (also cached in ``state['novelty_verdict']``)."""
+    raw = state.get("novelty_scorer_feedback")
+    scorer_output = raw
+    if isinstance(raw, str):
+        try:
+            scorer_output = json.loads(raw)
+        except Exception:
+            scorer_output = {}
+    if not isinstance(scorer_output, dict):
+        scorer_output = {}
+    verdict = ideation_gate_decision(scorer_output, _effective_k(state, k))
+    state["novelty_verdict"] = verdict
+    return verdict
+
+
+def _parse_json_maybe(raw) -> dict:
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _parse_candidates(raw) -> list:
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except Exception:
+            return []
+    return raw if isinstance(raw, list) else []
+
+
+def _decision_to_verdict(decision: dict) -> dict:
+    """Shape a falsifier_flow decision into the novelty_verdict the gate reads."""
+    approved = bool(decision.get("approved"))
+    killing = decision.get("killing_works", [])
+    return {
+        "exit": approved,
+        "approved": approved,
+        "verdict": decision.get("verdict"),
+        "reason": decision.get("reason"),
+        "killing_works": killing,
+        "feedback": {"verdict": decision.get("verdict"), "reason": decision.get("reason"), "killing_works": killing},
+        "falsifier_rounds": decision.get("falsifier_rounds"),
+    }
+
+
+def _idea_from_state(state: dict) -> dict:
+    """Build the {title, description} the prefilter ranks against from state."""
+    raw = state.get("generated_ideas")
+    parsed = _parse_json_maybe(raw)
+    if parsed.get("title") or parsed.get("description"):
+        return {"title": parsed.get("title") or "", "description": parsed.get("description") or ""}
+    return {"title": "", "description": raw if isinstance(raw, str) else json.dumps(raw or "")}
+
+
+class PrefilterAgent(BaseAgent):
+    """S2-2 (live graph) — embedding prefilter between recall and the scorer.
+
+    Reads the recall candidates from ``state['recall_candidates']`` and the idea
+    from ``state['generated_ideas']``, ranks with the SHARED ``top_similar``, and
+    writes the top-k to ``state['prefiltered_works']`` — the exact key the scorer
+    prompt reads and the re-verdict agent re-injects into. Uses the same
+    ``top_similar`` implementation as ``pipeline.evaluate_idea`` (no parallel logic).
+    """
+
+    _k: Any = PrivateAttr()
+
+    def __init__(self, k: Optional[int] = None, name: str = "prefilter_agent"):
+        super().__init__(name=name, description="Ranks recall candidates and writes the top-k for the scorer.")
+        self._k = k
+
+    def _info(self, text: str) -> Event:
+        return Event(author=self.name, content=types.Content(role="model", parts=[types.Part(text=text)]),
+                     turn_complete=False)
+
+    @override
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        state = ctx.session.state
+        k = self._k if self._k is not None else get_prefilter_k()
+        candidates = _parse_candidates(state.get("recall_candidates"))
+        ranked = top_similar(_idea_from_state(state), candidates, k=k)
+        state["prefiltered_works"] = json.dumps(ranked)
+        yield self._info(f"🔎 Prefilter: {len(candidates)} recall candidates → top {len(ranked)} for the scorer.")
+
+
+def create_prefilter_agent(k: Optional[int] = None) -> PrefilterAgent:
+    """Factory for the S2-2 prefilter agent (sits between recall and the scorer)."""
+    return PrefilterAgent(k=k)
+
+
+def _norm_idea(x) -> dict:
+    if isinstance(x, dict):
+        return {"title": x.get("title") or "", "description": x.get("description") or x.get("why_novel") or ""}
+    return {"title": "", "description": str(x)}
+
+
+def _parse_ideas(raw) -> list:
+    """Parse the generator output into a list of {title, description} ideas."""
+    data = raw
+    if isinstance(raw, str):
+        try:
+            data = json.loads(raw)
+        except Exception:
+            data = raw
+    if isinstance(data, list):
+        return [_norm_idea(x) for x in data if x]
+    if isinstance(data, dict):
+        for key in ("ideas", "new_ideas", "proposed_ideas", "directions"):
+            if isinstance(data.get(key), list):
+                return [_norm_idea(x) for x in data[key] if x]
+        if data.get("title") or data.get("description"):
+            return [_norm_idea(data)]
+    if isinstance(raw, str) and raw.strip():
+        return [{"title": "", "description": raw.strip()}]
+    return []
+
+
+class IdeationTournamentAgent(BaseAgent):
+    """S2-6 — runs one ideation round as a tournament over 4-6 ideas.
+
+    Recall (S2-1) runs ONCE on the union of the ideas' queries; each idea is then
+    prefiltered + scored + falsified against that shared corpus by re-using the
+    prefilter / scorer / re-verdict sub-agents. The winner is chosen by the SHARED
+    ``select_winner`` ranking; the runner-up (with its audit) is stored in
+    ``state['ideation_runner_up']``. The final ``novelty_verdict`` (winner ->
+    approve, none -> reject) is handed to the code gate, so zero approved ideas
+    exhaust the loop per Stage 0 semantics — never a silent continue.
+    """
+
+    _k: Any = PrivateAttr()
+    _prefilter: Any = PrivateAttr()
+    _scorer: Any = PrivateAttr()
+    _reverdict: Any = PrivateAttr()
+    _working_dir: Any = PrivateAttr()
+
+    def __init__(self, prefilter_agent, scorer_agent, reverdict_agent, k: int = 12,
+                 working_dir: str = "", name: str = "ideation_tournament_agent"):
+        super().__init__(name=name, description="Runs the ideation tournament (shared recall corpus, ranked winner).")
+        self._prefilter = prefilter_agent
+        self._scorer = scorer_agent
+        self._reverdict = reverdict_agent
+        self._k = k
+        self._working_dir = working_dir
+
+    def _info(self, text: str) -> Event:
+        return Event(author=self.name, content=types.Content(role="model", parts=[types.Part(text=text)]),
+                     turn_complete=False)
+
+    def _persist_audit(self, idea, verdict, table, prefiltered, recall_meta, mvpt) -> None:
+        """S2-8: append this idea's full audit to knowledge_base/novelty_audit.json."""
+        try:
+            from ai_research_engineer.core.novelty.audit import append_audit, build_audit_entry
+
+            entry = build_audit_entry(idea, verdict=verdict, table=table, prefiltered=prefiltered,
+                                      recall=recall_meta, mvpt=mvpt)
+            append_audit(self._working_dir, entry)
+        except Exception as exc:  # audit is best-effort — never break ideation
+            logger.debug("[tournament] audit persist failed: %s", exc)
+
+    def _recall_once(self, ideas: list) -> tuple:
+        """One recall over the union of the ideas' text. Returns
+        ``(corpus, recall_meta)`` where recall_meta carries the report's
+        per-channel counts + channel_status for the audit."""
+        import dataclasses
+        import json as _json
+
+        from ai_research_engineer.core.novelty.recall import _idea_id, recall_prior_work
+
+        union = {"title": "", "description": " ".join(
+            f"{i.get('title', '')} {i.get('description', '')}".strip() for i in ideas)}
+        try:
+            corpus = [dataclasses.asdict(c) for c in recall_prior_work(union, self._working_dir)]
+        except Exception as exc:
+            logger.warning("[tournament] recall failed: %s", exc)
+            return [], {}
+        # Read the persisted recall report for its channel_status (S2-1).
+        meta = {}
+        report = Path(self._working_dir) / "knowledge_base" / "novelty" / f"recall_{_idea_id(union)}.json"
+        if report.is_file():
+            try:
+                data = _json.loads(report.read_text(encoding="utf-8"))
+                meta = {"per_channel_counts": data.get("per_channel_counts", {}),
+                        "channel_status": data.get("channel_status", {})}
+            except Exception:
+                meta = {}
+        return corpus, meta
+
+    @override
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        state = ctx.session.state
+        ideas = _parse_ideas(state.get("generated_ideas"))
+        if not ideas:
+            state["novelty_verdict"] = {"approved": False, "verdict": "reject", "reason": "no ideas generated"}
+            yield self._info("🏟️ Tournament: no ideas to evaluate.")
+            return
+
+        corpus, recall_meta = self._recall_once(ideas)   # S2-1 recall — ONCE for the round
+        state["recall_candidates"] = json.dumps(corpus)
+
+        audits = []
+        for idx, idea in enumerate(ideas):
+            state["generated_ideas"] = json.dumps(idea)
+            state.pop("novelty_verdict", None)
+            for sub in (self._prefilter, self._scorer, self._reverdict):
+                async for ev in sub.run_async(ctx):
+                    yield ev
+            verdict = state.get("novelty_verdict") or {}
+            scorer_out = _parse_json_maybe(state.get("novelty_scorer_feedback"))
+            table = scorer_out.get("differentiation_table", [])
+            prefiltered = _parse_candidates(state.get("prefiltered_works"))
+            decision = {
+                "approved": bool(verdict.get("approved")),
+                "verdict": verdict.get("verdict"),
+                "reason": verdict.get("reason"),
+                "table": table,
+                "prefiltered": prefiltered,
+                "killing_works": verdict.get("killing_works", []),
+            }
+            audits.append(build_audit(idx, idea, decision))
+            # S2-8: append the full per-idea audit for the UI / ideation memory.
+            self._persist_audit(idea, verdict, table, prefiltered, recall_meta, scorer_out.get("mvpt"))
+
+        selection = select_winner(audits)
+        state["ideation_audits"] = audits
+        if selection["winner"]:
+            state["generated_ideas"] = json.dumps(selection["winner"]["idea"])
+            state["novelty_verdict"] = {"approved": True, "verdict": "approve",
+                                        "reason": "tournament winner", "killing_works": []}
+            if selection["runner_up"]:
+                state["ideation_runner_up"] = selection["runner_up"]
+            yield self._info(
+                f"🏟️ Tournament: {selection['approved_count']}/{len(ideas)} approved — winner selected"
+                + (", runner-up stored." if selection["runner_up"] else ".")
+            )
+        else:
+            state["novelty_verdict"] = {"approved": False, "verdict": "reject",
+                                        "reason": "no idea survived the novelty audit", "killing_works": []}
+            yield self._info(f"🏟️ Tournament: 0/{len(ideas)} approved — ideation will regenerate or exhaust.")
+
+
+def create_ideation_tournament_agent(prefilter_agent, scorer_agent, reverdict_agent, k: int = 12,
+                                     working_dir: str = "") -> IdeationTournamentAgent:
+    """Factory for the S2-6 ideation tournament agent."""
+    return IdeationTournamentAgent(prefilter_agent, scorer_agent, reverdict_agent, k=k, working_dir=working_dir)
+
+
+class FalsifierReVerdictAgent(BaseAgent):
+    """S2-4 — runs the adversarial falsifier re-verdict loop in the live graph.
+
+    Sits between the scorer and the code gate. On a scorer APPROVE it drives the
+    SHARED ``falsifier_flow`` control machine, re-invoking the falsifier and
+    scorer LLM agents on the augmented candidate set (up to 2 rounds), and writes
+    the FINAL code-gate verdict to ``state['novelty_verdict']`` for the gate. It
+    adds no control-flow logic of its own — it only pumps ``falsifier_flow``. The
+    outer generation loop fires only on the gate's final REJECT, not on falsifier
+    finds.
+    """
+
+    _k: Any = PrivateAttr()
+    _scorer: Any = PrivateAttr()
+    _falsifier: Any = PrivateAttr()
+
+    def __init__(self, scorer_agent, falsifier_agent, k: int = 12, name: str = "falsifier_reverdict_agent"):
+        super().__init__(name=name, description="Drives the shared falsifier re-verdict control flow (no new logic).")
+        self._scorer = scorer_agent
+        self._falsifier = falsifier_agent
+        self._k = k
+
+    def _info(self, text: str) -> Event:
+        return Event(author=self.name, content=types.Content(role="model", parts=[types.Part(text=text)]),
+                     turn_complete=False)
+
+    @override
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        state = ctx.session.state
+        initial = _parse_json_maybe(state.get("novelty_scorer_feedback"))
+        # Expected table size = works actually handed to the scorer, not a fixed cap.
+        k = _effective_k(state, self._k)
+        base = evaluate_novelty(initial, k)
+
+        if not base.approved:
+            # A scorer REJECT stands; the falsifier only probes approvals.
+            state["novelty_verdict"] = ideation_gate_decision(initial, k)
+            yield self._info("🔬 Falsifier skipped — scorer did not approve.")
+            return
+
+        idea = {"generated_ideas": state.get("generated_ideas")}
+        candidates = _parse_candidates(state.get("prefiltered_works"))
+        flow = falsifier_flow(idea, base, candidates, k, DEFAULT_MAX_ROUNDS)
+        decision = None
+        try:
+            request = flow.send(None)
+            while True:
+                kind, _idea, payload = request
+                if kind == "falsify":
+                    async for ev in self._falsifier.run_async(ctx):
+                        yield ev
+                    result = state.get("novelty_falsifier_feedback")
+                else:  # "score" — inject the augmented candidate set, re-run scorer
+                    state["prefiltered_works"] = json.dumps(payload)
+                    async for ev in self._scorer.run_async(ctx):
+                        yield ev
+                    result = _parse_json_maybe(state.get("novelty_scorer_feedback"))
+                request = flow.send(result)
+        except StopIteration as stop:
+            decision = stop.value
+
+        state["novelty_verdict"] = _decision_to_verdict(decision or {})
+        yield self._info(f"🔬 Falsifier re-verdict: {(decision or {}).get('verdict')} — {(decision or {}).get('reason')}")
+
+
+def create_falsifier_reverdict_agent(scorer_agent, falsifier_agent, k: int = 12) -> FalsifierReVerdictAgent:
+    """Factory for the S2-4 falsifier re-verdict agent (sits between the scorer
+    and the ideation gate)."""
+    return FalsifierReVerdictAgent(scorer_agent, falsifier_agent, k=k)
+
+
+def _audit_reason(verdict: dict) -> str:
+    """Audit-trail reason: killing work(s) verbatim on a core overlap,
+    ``"incomplete_differentiation"`` on an incomplete table, else the reason."""
+    if verdict.get("approved"):
+        return verdict.get("reason") or "approved"
+    killing = verdict.get("killing_works") or []
+    if killing:
+        return "core overlap — killing work(s): " + json.dumps(killing)
+    if (verdict.get("reason") or "") == "incomplete differentiation":
+        return "incomplete_differentiation"
+    return verdict.get("reason") or "rejected"
+
+
+class IdeationGateAgent(BaseAgent):
+    """Code-only ideation novelty gate (S2-3) — no LLM call.
+
+    Reads the code-computed novelty verdict (``state['novelty_verdict']``,
+    recomputing from the scorer output if absent) and sets the loop exit
+    directly: ``approved`` -> escalate (exit True); otherwise no escalate (the
+    generator regenerates). Records a Stage 0 gate_decision so the sabotage suite
+    and audit trail read consistently. Scoped to ideation only — planning, paper,
+    and implementation confirmations keep their LLM agents.
+    """
+
+    _k: Any = PrivateAttr()
+
+    def __init__(self, k: int = 12, name: str = "ideation_gate_agent"):
+        super().__init__(
+            name=name,
+            description="Code-authoritative ideation novelty gate (no LLM).",
+        )
+        self._k = k
+
+    @override
+    async def _run_async_impl(self, ctx: InvocationContext) -> AsyncGenerator[Event, None]:
+        state = ctx.session.state
+        # The falsifier re-verdict agent (S2-4) writes the FINAL novelty_verdict
+        # upstream; fall back to computing it from the scorer output if it ran
+        # standalone (e.g. no falsifier stage wired).
+        verdict = state.get("novelty_verdict")
+        if not isinstance(verdict, dict):
+            verdict = _compute_novelty_verdict(state, self._k)
+
+        approved = bool(verdict.get("approved"))
+        reason = _audit_reason(verdict)
+
+        # Stage 0 gate_decision entry (mirrors NonEscalatingLoopAgent) so the
+        # streaming layer emits a consistent GateDecisionEvent for the audit trail.
+        decisions = state.get("_gate_decisions")
+        if not isinstance(decisions, list):
+            decisions = []
+        decisions.append(
+            {
+                "loop": "ideation_novelty_gate",
+                "outcome": "approved" if approved else "rejected",
+                "reason": reason,
+            }
+        )
+        state["_gate_decisions"] = decisions
+        logger.info("[ideation_gate] code verdict=%s — %s", verdict.get("verdict"), reason)
+
+        text = (
+            f"🚦 **Ideation novelty gate** (code): "
+            f"**{'APPROVE' if approved else 'REJECT'}** — {reason}"
+        )
+        yield Event(
+            author=self.name,
+            content=types.Content(role="model", parts=[types.Part(text=text)]),
+            actions=EventActions(escalate=approved),
+            turn_complete=False,
+        )
+
+
+def create_ideation_gate_agent(k: int = 12) -> IdeationGateAgent:
+    """Factory for the code-only ideation novelty gate (replaces the ideation
+    confirmation LLM)."""
+    return IdeationGateAgent(k=k)
 
 
 def create_review_confirmation_agent(
