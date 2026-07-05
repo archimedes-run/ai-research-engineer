@@ -14,14 +14,18 @@ core, or when the differentiation is too thin to defend (ambiguity = noise).
   8  passed first-pass review
  -4  DROPPED as honest close-calls (coin-flip rows the process is meant to catch)
   4  retained — high-confidence-open
++1  added — 1 survivor of an 18-candidate LLM rebuild (see below)
+  5  SIGNED OFF (N=5)
 ```
 
-**Signed-off scope: N = 4, DRAFT (SIGNED_OFF: false).** N=4 is too small to
-report an FRR against (1 wrong = 25%), so the dataset is left DRAFT and the
-harness blocks the live run until the maintainer expands it (see README).
+**Signed-off scope: N = 5, SIGNED_OFF: true — with a structural caveat.** Signed
+off per maintainer authorization. N=5 makes FRR coarse (each row = 20%), so the
+dataset header carries `frr_interpretability: LOW`; report the number only with
+that caveat. A robust N still needs maintainer-proposed rows.
 
-Rows retained: `p_ctx_forgetting`, `p_energy_aware_moe_routing`,
-`p_curriculum_from_loss_geometry`, `p_crossmodal_grokking`.
+Rows: `p_ctx_forgetting`, `p_energy_aware_moe_routing`,
+`p_curriculum_from_loss_geometry`, `p_crossmodal_grokking` (4 confident) +
+`p_grok_rlhf` (rebuild survivor, ⚠ correlated with `p_crossmodal_grokking`).
 
 Rows dropped as close-calls (removed from the run set): `p_compositional_eval_gen`,
 `p_units_aware_reasoning`, `p_uncertainty_from_kv`, `p_hardware_aware_quant_search`.
@@ -59,28 +63,44 @@ evidence-grounded gate must catch.
 > of 'genuinely open directions' yielded defensible candidates only 27% of the
 > time (8/30), a direct motivation for retrieval-grounded novelty verification."*
 
-### Rebuild attempt via LLM-generation (Path A) — 0/6, second confirmation
+### Rebuild attempt via LLM-generation (Path A) — 18 candidates, 1 survivor (~5%)
 
-To rebuild toward a robust N, six *new* specific/niche directions were proposed
-and search-verified one at a time. **All six were killed by prior work** — a
-0/6 survival rate, even starker than the original 27%, and an independent second
-confirmation of the finding:
+At the maintainer's authorization ("run it for me, I accept the consequences"),
+a full autonomous rebuild was attempted: **18 new specific/niche directions**
+were proposed and search-verified one at a time, across several strategies
+(broad, niche, and "transfer a known phenomenon to an under-studied setting" —
+the pattern that produced the original survivors). **17 were killed by prior
+work; 1 survived.** This is the third/fourth independent confirmation of the
+finding — the field is so densely covered by 2024–2026 work that carefully-chosen
+"open" directions almost always already exist.
 
-| candidate | killer |
+| candidate | outcome / killer |
 | --- | --- |
-| loss-spike prediction from gradient-noise-scale trajectory | "Spike No More" (2312.16903); GNS→critical-batch-size |
-| build-time canary strings for contamination | BIG-bench canary strings; CANARY (2606.01695) |
-| belief-state over tool reliability vs stateless retry | PALADIN (2509.25238); "Long-Horizon Task Mirage" (2604.11978) |
-| RoPE base frequency → which layers form retrieval heads | "Round and Round We Go" (2410.06205); RoPE frequency-band work |
-| quantization error concentrates on specific SAE features | **"Perplexity Can Miss SAE Feature Damage Under Quantization" (2606.03002)** — on the nose |
-| spec-decode draft acceptance as a free target-uncertainty signal | draft-entropy↔acceptance + target-confidence↔acceptance results |
+| loss-spike prediction from gradient-noise-scale trajectory | KILL — "Spike No More" (2312.16903); GNS→critical-batch-size |
+| build-time canary strings for contamination | KILL — BIG-bench canaries; CANARY (2606.01695) |
+| belief-state over tool reliability vs retry | KILL — PALADIN (2509.25238); "Long-Horizon Task Mirage" (2604.11978) |
+| RoPE base frequency → which layers form retrieval heads | KILL — "Round and Round We Go" (2410.06205) |
+| quantization error concentrates on specific SAE features | KILL — "Perplexity Can Miss SAE Feature Damage Under Quantization" (2606.03002) |
+| spec-decode acceptance as a free target-uncertainty signal | KILL — draft-entropy↔acceptance / target-confidence↔acceptance |
+| induction-head formation timing from n-gram statistics | KILL — "Predicting the Formation of Induction Heads" (2511.16893) |
+| refusal-direction drift within a single long multi-turn context | KILL — "When Refusals Fail" (2512.02445); "Drift No More?" (2510.07777) |
+| MoE router-init spectrum → expert specialization | KILL — SD-MoE (2602.12556); ERMoE (2511.10971); Grassmannian MoE |
+| **grokking / delayed generalization in RLHF / preference optimization** | **SURVIVE** — no paper found; grokking studied only in supervised/algorithmic/low-precision. Adjacent, not core. Row `p_grok_rlhf` (⚠ same flavor as `p_crossmodal_grokking` → correlated). |
+| scaling law for machine-unlearning difficulty vs model size | KILL — overparameterization-unlearning (2503.08633); circuit-difficulty (2601.09624) |
+| double descent in number of in-context (many-shot) examples | KILL — Many-Shot ICL (2404.11018) explicitly shows monotonic, *not* double descent |
+| reversal curse in multimodal image↔caption associations | KILL — reversal-curse line over-studied; multimodal extension too thin |
+| task-vector composition beyond two tasks (predictable interference) | KILL — anisotropic-scaling composition; weight-disentanglement (2604.17078) |
+| effective vs trained context-length scaling law | KILL — "Why Does the Effective Context Length Fall Short?" (2410.18745) |
+| grokking / delayed accuracy recovery in quantization-aware training | KILL — "Grokking or Glitching? Low-Precision Slingshot" (2605.06152) |
+| diffusion memorization ↔ internal denoiser feature | KILL — "Memorized Images share a Subspace" (2406.18566); geometric-memorization (2602.17846) |
+| tool-use "capacity tax" on unrelated capabilities, scaling | KILL — "Reasoning and Tool-use Compete in Agentic RL" (2602.00994); CITI |
 
-**Conclusion:** autonomous LLM-generation reproduces the exact failure mode
-(dense field; carefully-chosen "open" ideas already exist). Fabricating marginal
-rows to hit N=24 would corrupt the very FRR metric this set exists to measure.
-The proposal step is handed back to the maintainer, whose own-subfield prior is
-the reliable one; each maintainer row should be search-verified the same way
-before inclusion (see the template in README).
+**Conclusion.** Autonomous LLM-generation cannot produce this dataset: ~5%
+survival, and the one survivor is thin (correlated with an existing row). The set
+was signed off at **N = 5** (4 confident + `p_grok_rlhf`) per maintainer
+authorization, with the small-N caveat made structural in the dataset header
+(`frr_interpretability: LOW`). A robust N still requires maintainer-proposed,
+individually-verified rows — the reliable prior — per `PLAUSIBLE_REBUILD_PLAN.md`.
 
 ### Rebuild (Path A)
 

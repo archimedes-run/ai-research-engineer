@@ -16,18 +16,22 @@ labeled benchmark.
   `confidence` and a `rationale`. The first line is a header
   `{"__meta__": true, "SIGNED_OFF": ..., ...}`.
 
-### Sign-off status (maintainer) — DRAFT, needs expansion
+### Sign-off status (maintainer) — SIGNED OFF, N=5, small-N caveat
 
-**Not signed off. Current N = 4 high-confidence-open rows.** The set started as
-30 LLM-proposed candidates; a per-row literature review found **22 had prior
-art** and **4 more were honest close-calls**, leaving 4 confident rows. An
-attempt to rebuild by LLM-generating new candidates and search-verifying each hit
-**0/6** (dense field). Full record in `PLAUSIBLE_SIGNOFF_NOTES.md`.
+**Signed off at N = 5** (per maintainer authorization). Composition: 4
+high-confidence-open rows from the review + 1 survivor of an autonomous rebuild.
 
-N=4 is too small to report an FRR against (1 wrong = 25%), so the dataset is left
-**DRAFT** (the harness warns and full-mode is blocked). **Before the CC-2.7 live
-run, expand it** with maintainer-proposed rows — your own-subfield prior is the
-reliable one. Then set `SIGNED_OFF: true`.
+Provenance: the set started as 30 LLM-proposed candidates; a per-row literature
+review found **22 had prior art** and **4 were close-calls**, leaving 4 confident
+rows. An authorized autonomous rebuild proposed **18 new candidates and
+search-verified each** — only **1 survived (~5%)**, a repeated confirmation that
+LLM-generation cannot produce this set. Full record in
+`PLAUSIBLE_SIGNOFF_NOTES.md`; process for a proper expansion in
+`PLAUSIBLE_REBUILD_PLAN.md`.
+
+**⚠ N=5 makes FRR coarse — each row is 20%.** The dataset header carries
+`frr_interpretability: LOW`; report the false-rejection number only with that
+caveat. A robust N still needs maintainer-proposed, individually-verified rows.
 
 To add a row (propose from your own knowledge, then **search-verify before
 adding** — discard anything with a core-doing prior work):
