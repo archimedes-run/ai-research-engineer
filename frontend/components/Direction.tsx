@@ -2,6 +2,7 @@
 
 import { motion, useReducedMotion } from 'framer-motion'
 import Link from 'next/link'
+import TiltCard from './TiltCard'
 import {
   Lightbulb,
   FileText,
@@ -114,14 +115,15 @@ export default function Direction() {
             className="space-y-3"
           >
             {inputs.map((item) => (
-              <motion.div
+              <TiltCard
                 key={item.label}
                 variants={inputCardVariants}
-                className="group flex items-center gap-3 bg-white/60 border border-[#3C2F2A]/10 rounded-xl px-5 py-3.5 text-left shadow-sm transition-all duration-150 ease-out hover:-translate-y-0.5 hover:shadow-md hover:border-[#E05240]/30"
+                strength={7}
+                className="group flex items-center gap-3 bg-white/60 border border-[#3C2F2A]/10 rounded-xl px-5 py-3.5 text-left shadow-sm transition-shadow duration-150 ease-out hover:shadow-md hover:border-[#E05240]/30"
               >
-                <item.icon className="w-4 h-4 text-[#E05240] shrink-0 transition-transform duration-150 group-hover:scale-110" />
-                <span className="font-body text-sm text-[#3C2F2A] font-medium">{item.label}</span>
-              </motion.div>
+                <item.icon className="w-4 h-4 text-[#E05240] shrink-0" style={{ transform: 'translateZ(24px)' }} />
+                <span className="font-body text-sm text-[#3C2F2A] font-medium" style={{ transform: 'translateZ(16px)' }}>{item.label}</span>
+              </TiltCard>
             ))}
           </motion.div>
 
@@ -153,14 +155,15 @@ export default function Direction() {
             className="grid grid-cols-2 gap-3"
           >
             {outputs.map((item) => (
-              <motion.div
+              <TiltCard
                 key={item.label}
                 variants={outputCardVariants}
-                className="group flex items-center gap-2.5 bg-[#3C2F2A] border border-[#3C2F2A] rounded-xl px-4 py-3.5 text-left shadow-md transition-all duration-150 ease-out hover:-translate-y-0.5 hover:shadow-xl hover:border-[#E05240]/40"
+                strength={12}
+                className="group flex items-center gap-2.5 bg-[#3C2F2A] border border-[#3C2F2A] rounded-xl px-4 py-3.5 text-left shadow-md transition-shadow duration-150 ease-out hover:shadow-xl hover:border-[#E05240]/40"
               >
-                <item.icon className="w-4 h-4 text-[#FF8C7A] shrink-0 transition-transform duration-150 group-hover:scale-110" />
-                <span className="font-body text-[13px] text-white font-medium">{item.label}</span>
-              </motion.div>
+                <item.icon className="w-4 h-4 text-[#FF8C7A] shrink-0" style={{ transform: 'translateZ(30px)' }} />
+                <span className="font-body text-[13px] text-white font-medium" style={{ transform: 'translateZ(20px)' }}>{item.label}</span>
+              </TiltCard>
             ))}
           </motion.div>
         </div>

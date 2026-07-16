@@ -25,6 +25,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/three": "^0.183.1",
     "autoprefixer": "^10.0.1",
     "eslint": "^8",
     "eslint-config-next": "15.2.4",

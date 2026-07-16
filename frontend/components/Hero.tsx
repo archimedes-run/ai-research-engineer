@@ -1,6 +1,7 @@
 'use client'
 
-import { motion } from 'framer-motion'
+import { useRef } from 'react'
+import { motion, useScroll, useTransform } from 'framer-motion'
 import { BookOpen, Github } from 'lucide-react'
 
 function DiscordIcon({ className }: { className?: string }) {
@@ -21,11 +22,26 @@ const fadeUp = (delay: number) => ({
 })
 
 export default function Hero() {
-  return (
-    <section className="relative w-full h-screen min-h-[800px] flex flex-col justify-center overflow-hidden bg-[#FEF6F1]">
+  const ref = useRef<HTMLElement>(null)
+  // Scroll effect: the landscape drifts down + scales as you scroll away,
+  // while the foreground content leaves at normal speed → parallax depth.
+  const { scrollYProgress } = useScroll({
+    target: ref,
+    offset: ['start start', 'end start'],
+  })
+  const bgY = useTransform(scrollYProgress, [0, 1], ['0%', '18%'])
+  const bgScale = useTransform(scrollYProgress, [0, 1], [1, 1.12])
+  const contentY = useTransform(scrollYProgress, [0, 1], ['0%', '-40%'])
+  const contentOpacity = useTransform(scrollYProgress, [0, 0.6], [1, 0])
 
-      {/* 1. BASE LAYER: Sunrise Landscape */}
-      <div className="absolute inset-0 z-0">
+  return (
+    <section
+      ref={ref}
+      className="relative w-full h-screen min-h-[800px] flex flex-col justify-center overflow-hidden bg-[#FEF6F1]"
+    >
+
+      {/* 1. BASE LAYER: Sunrise Landscape (parallax) */}
+      <motion.div style={{ y: bgY, scale: bgScale }} className="absolute inset-0 z-0 will-change-transform">
         <Image
           src="/hero-bg.jpg"
           alt="Archimedes Landscape"
@@ -33,7 +49,7 @@ export default function Hero() {
           priority
           className="object-cover object-center"
         />
-      </div>
+      </motion.div>
 
       {/* 2. EFFECT LAYER: Kinetic Matrix */}
       <AsciiOverlay />
@@ -55,8 +71,11 @@ export default function Hero() {
         <div className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-t from-[#FCE9D8]/20 to-transparent opacity-60" />
       </div>
 
-      {/* 4. CONTENT LAYER */}
-      <div className="relative z-20 h-full flex flex-col items-center justify-center px-6 mt-16">
+      {/* 4. CONTENT LAYER (parallax — leaves faster than the landscape) */}
+      <motion.div
+        style={{ y: contentY, opacity: contentOpacity }}
+        className="relative z-20 h-full flex flex-col items-center justify-center px-6 mt-16 will-change-transform"
+      >
 
         {/* Status badge */}
         <motion.div
@@ -130,7 +149,7 @@ export default function Hero() {
             Join Discord
           </Link>
         </motion.div>
-      </div>
+      </motion.div>
 
     </section>
   )
