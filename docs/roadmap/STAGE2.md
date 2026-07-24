@@ -87,12 +87,14 @@ S2-7 The novelty benchmark. benchmarks/novelty/ with:
   -known GitHub repos/techniques with no flagship paper). Each row: {id,
   idea_title, idea_description, ground_truth: "reject", killing_work:
   {title, url}, category}.
-- datasets/plausible_30.jsonl — 30 genuinely open/very-recent directions →
-  ground truth "approve" (meaning: must not be rejected for prior art).
+- datasets/plausible_30.jsonl — signed off at 19 genuinely open/very-recent
+  directions (subfield-rebuilt; the original 30-row spec kept only 8 on review)
+  → ground truth "approve" (meaning: must not be rejected for prior art).
   Mark each with a confidence field; these are curated by the maintainer —
   generate a candidate list with rationales for human review, and mark the
   dataset DRAFT until the maintainer signs off (a SIGNED_OFF flag in the
   file header the harness warns about).
+  See sign-off history in df4f782 and benchmarks/novelty/PLAUSIBLE_SIGNOFF_NOTES.md.
 - run_novelty_bench.py: runs the FULL engine (recall→prefilter→differentiate
   →falsify) against both sets; reports rejection recall on KNOWN-50 (overall
   + per category, esp. code-only), false-rejection rate on PLAUSIBLE-30,
