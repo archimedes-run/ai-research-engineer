@@ -30,16 +30,25 @@ def test_known_50_schema_and_composition():
     assert all(len(r["idea_description"]) > 40 for r in rows)
 
 
-def test_plausible_dataset_signed_off_small_n_with_caveat():
+def test_plausible_dataset_signed_off_n19_subfield_rebuild():
     header, rows = B.load_dataset(_DATASETS / "plausible_30.jsonl")
-    # Signed off at N=5 (4 confident + 1 rebuild survivor) per maintainer
-    # authorization. 22 rows had prior art; an 18-candidate rebuild netted 1
-    # survivor (~5%). N is small, so the header must carry the interpretability
-    # caveat + provenance so the FRR is never reported bare.
+    # Rebuilt subfield-first / memory-first / then-verified (see
+    # PLAUSIBLE_REBUILD_PLAN.md + PLAUSIBLE_SIGNOFF_NOTES.md): 17 maintainer
+    # candidates -> 2 killed in Phase-3 verification -> 15 new + 4 retained = 19.
+    # The header composition must be internally consistent so the FRR is never
+    # reported against a different N than the file actually holds.
     assert B.signed_off(header) is True
-    assert header.get("signed_off_count") == len(rows) == 5
-    assert "LOW" in header.get("frr_interpretability", "")   # small-N caveat is structural
-    assert "search-verified" in header.get("provenance", "")  # honest provenance recorded
+    comp = header.get("composition", {})
+    assert comp.get("total") == len(rows) == 19
+    assert header.get("frr_denominator") == 19
+    new_rows = (
+        comp["learning_augmented_algorithms"]
+        + comp["physics_informed_neural_operators"]
+        + comp["protein_ml"]
+        + comp["moe_routing"]
+    )
+    assert new_rows == 15 and comp["retained_original"] == 4  # 15 new + 4 retained
+    assert "verified" in header.get("signoff_process", "")  # honest provenance recorded
     assert B.validate_rows(rows, "plausible") == []
     assert all(r.get("rationale") and r.get("confidence") for r in rows)
 
