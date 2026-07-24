@@ -16,22 +16,27 @@ labeled benchmark.
   `confidence` and a `rationale`. The first line is a header
   `{"__meta__": true, "SIGNED_OFF": ..., ...}`.
 
-### Sign-off status (maintainer) — SIGNED OFF, N=5, small-N caveat
+### Sign-off status (maintainer) — SIGNED OFF, N=19 (subfield rebuild)
 
-**Signed off at N = 5** (per maintainer authorization). Composition: 4
-high-confidence-open rows from the review + 1 survivor of an autonomous rebuild.
+**Signed off at N = 19.** Composition: **15 new** maintainer-proposed rows across
+four subfields (4 learning-augmented algorithms, 4 physics-informed neural
+operators, 3 protein-ML, 4 MoE routing) + **4 retained** confident rows from the
+original review. The dataset header carries the full `composition` and
+`frr_denominator: 19`.
 
 Provenance: the set started as 30 LLM-proposed candidates; a per-row literature
-review found **22 had prior art** and **4 were close-calls**, leaving 4 confident
-rows. An authorized autonomous rebuild proposed **18 new candidates and
-search-verified each** — only **1 survived (~5%)**, a repeated confirmation that
-LLM-generation cannot produce this set. Full record in
-`PLAUSIBLE_SIGNOFF_NOTES.md`; process for a proper expansion in
-`PLAUSIBLE_REBUILD_PLAN.md`.
+review found **22 had prior art** and **4 were close-calls**, and an autonomous
+LLM rebuild of 18 candidates netted only **1 survivor (~5%)** — repeated evidence
+that LLM-generation cannot produce this set. It was instead rebuilt
+**subfield-first / memory-first / then-verified** (`PLAUSIBLE_REBUILD_PLAN.md`):
+the maintainer proposed from fields they know deeply, and each candidate got an
+independent Semantic Scholar/arXiv verification pass — **2 of 17 were killed** by
+a core-doing prior work found in verification. Full record in
+`PLAUSIBLE_SIGNOFF_NOTES.md`.
 
-**⚠ N=5 makes FRR coarse — each row is 20%.** The dataset header carries
-`frr_interpretability: LOW`; report the false-rejection number only with that
-caveat. A robust N still needs maintainer-proposed, individually-verified rows.
+N = 19 is still modest, so continue to report the false-rejection number as a
+fraction of 19. A larger N only ever comes from maintainer-proposed,
+individually-verified rows — never from relaxing a rationale to hit a count.
 
 To add a row (propose from your own knowledge, then **search-verify before
 adding** — discard anything with a core-doing prior work):
@@ -58,6 +63,12 @@ uv run python -m benchmarks.novelty.run_novelty_bench                    # full 
   outputs. Exercises the real pipeline code end-to-end and asserts every
   prediction matches ground truth (plumbing, **not** quality numbers). Wired into
   CI (`novelty-ci-lite` job).
+- **`--dry-run`** — report the estimated cost and KNOWN/PLAUSIBLE row breakdown
+  for the current selection, then exit **without any LLM or search call**.
+  Estimate is `rows × --expected-cost-per-row` (default $0.55) — a configuration
+  sanity-check, not a price model. With `--budget-usd` it prints the projected
+  margin and **exits non-zero if the estimate exceeds the cap**, so a
+  misconfigured budget is caught before anything is spent.
 - **`--budget-usd CAP`** — track cumulative spend and **halt cleanly** at the cap;
   completed rows are persisted and the result is marked `status="budget_halted"`.
   Partial results are valid results.
@@ -73,5 +84,5 @@ attribution, cost/latency per idea).
 
 ## Rubric targets (asserted in CC-2.7, not here)
 
-KNOWN-50 rejection recall ≥ 90%; code-only ≥ 7/10; PLAUSIBLE-30 false-rejection
+KNOWN-50 rejection recall ≥ 90%; code-only ≥ 7/10; PLAUSIBLE false-rejection
 ≤ 20%; cost ≤ $1.50 and ≤ 6 min per idea at k=12.

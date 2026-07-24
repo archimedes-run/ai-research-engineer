@@ -2,7 +2,7 @@
 """Novelty benchmark harness (S2-7).
 
 Runs the full novelty engine (recall -> prefilter -> differentiate -> falsify)
-against KNOWN-50 (ground truth reject) and PLAUSIBLE-30 (ground truth approve)
+against KNOWN-50 (ground truth reject) and PLAUSIBLE (ground truth approve)
 and reports rejection recall, false-rejection rate, per-channel attribution,
 cost, and latency. Two modes:
 
@@ -286,7 +286,7 @@ def _print_summary(result: dict) -> None:
     print(f"KNOWN-50 rejection recall: {m['rejection_recall_known']}")
     for cat, s in m["per_category_recall"].items():
         print(f"  - {cat:<10} recall={s['recall']}  (n={s['n']})")
-    print(f"PLAUSIBLE-30 false-rejection rate: {m['false_rejection_rate_plausible']}")
+    print(f"PLAUSIBLE false-rejection rate: {m['false_rejection_rate_plausible']}")
     print(f"channel attribution: {m['channel_attribution']}")
     print(f"cost/idea=${m['cost_usd_per_idea']}  latency/idea={m['latency_s_per_idea']}s")
 
@@ -385,7 +385,7 @@ def main() -> int:
     else:
         if not signed_off(p_header):
             print("\n" + "!" * 72)
-            print("!! PLAUSIBLE-30 is DRAFT (SIGNED_OFF: false). Its false-rejection")
+            print("!! PLAUSIBLE is DRAFT (SIGNED_OFF: false). Its false-rejection")
             print("!! numbers are NOT valid until the maintainer signs off the dataset.")
             print("!" * 72 + "\n")
         # Live engine construction is intentionally deferred (CC-2.7 runs it live).
