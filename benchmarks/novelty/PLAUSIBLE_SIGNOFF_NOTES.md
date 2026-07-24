@@ -406,3 +406,50 @@ distinction — description must carry it).
 | **Total new**                     |           **17** |
 | Retained confident rows           |                4 |
 | **Projected dataset**             | **PLAUSIBLE-21** |
+
+### Phase 3 verification kills (Claude)
+
+Independent per-row Semantic Scholar + arXiv verification (2026-07-24), ~3
+paraphrases per row targeting the *core* contribution (not the maintainer's
+framing), biased to 2024–2026. Rule: a paper doing the row's core that is NOT
+named in the rationale = new killer → drop the row. **15/17 survived; 2 killed.**
+
+| row id | killer paper (not named in rationale) | one-sentence reason the core matches |
+| --- | --- | --- |
+| `p_pino_invariant_measure_preservation` | *Beyond Closure Models: Learning Chaotic Systems via Physics-Informed Neural Operators* (arXiv 2408.05177), building on *Training neural operators to preserve invariant measures of chaotic attractors* (arXiv 2306.01187, NeurIPS 2023) | 2408.05177 is a **physics-informed neural operator** whose stated goal is to "evaluate the long-term statistics instead of tracking any individual trajectory" and that "provably approximate[s] the long-term statistics"/invariant measures of chaotic PDEs past the point of trajectory divergence — exactly this row's core; the rationale named only LGNO and missed the invariant-measure line entirely. |
+| `p_protein_causal_function_circuits` | *Mechanistic evidence that motif-gated domain recognition drives contact prediction in protein language models* (bioRxiv 2025.08.22.671739), reinforced by *Interpretable enzyme function prediction via SAE features of ESMC* (arXiv 2606.12209) | 671739 does **causal circuit validation inside a frozen PLM** (ESM-2) via causal activation patching on a small *necessary* set of SAE latents that drives a downstream prediction — the row's core mechanism — refuting the rationale's premise that PLM interpretability "remain[s] evaluative or post hoc"; the residual function-vs-structure + selectivity gap is too thin to defend as a distinct core (Part E: do not soften a search-flagged rationale — drop). |
+
+**Notes on close survivors (adjacent, kept; recorded for the differentiation table):**
+- `p_pino_entropy_certified_shocks` — WE-PINNs (arXiv 2603.24819) already enforces
+  a discrete Kružkov entropy inequality + weak conservation with an L¹ convergence
+  certificate, but as a **single-instance PINN**, not an operator; the operator+certificate
+  intersection is unoccupied, so the row survives but at **medium** (the certificate
+  *mechanism* is published; only the operator lift remains).
+- `p_protein_temporal_annotation_backtesting` — LAFA (arXiv 2604.20782) is a
+  longitudinal protein-function-annotation backtest but controls only the
+  annotation-data cutoff, **not** the pretrained model's knowledge cutoff; the
+  row survives on the model-knowledge-rollback element (made load-bearing in
+  `idea_description`) but at **medium**.
+- `p_moe_specialization_intervention_map` — *The Expert Strikes Back* (arXiv 2604.02178)
+  causally validates expert specialization on standard top-k MoE but on a single
+  dataset without the cross-dataset-transfer requirement; adjacent, kept at medium.
+- `p_laa_performative_prediction_feedback` — *The Stability of Online Algorithms in
+  Performative Prediction* (arXiv 2602.24207) gives performative-equilibrium
+  convergence for no-regret learners, but lacks the learning-augmented
+  (advice/consistency-robustness) structure and worst-case fallback; adjacent, kept.
+- `p_laa_private_online_advice_composition` — LAPRAS (arXiv 2605.01960) uses
+  predictions *about future queries* to lower DP loss in linear-query-stream
+  release (the multiple-quantile lineage already named); the predictor is not
+  trained on private data; adjacent, kept at medium.
+
+### Phase 3 verified composition (post-verification)
+
+| Subfield                          | Survivors |
+| --------------------------------- | --------: |
+| Learning-augmented algorithms     |         4 |
+| Physics-informed neural operators |         4 |
+| Protein ML                        |         3 |
+| MoE routing and specialization    |         4 |
+| **Total new (verified)**          |    **15** |
+| Retained confident rows           |         4 |
+| **Signed-off dataset**            | **PLAUSIBLE-19** |
