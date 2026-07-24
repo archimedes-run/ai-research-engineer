@@ -106,6 +106,13 @@ dev = [
 ]
 
 [tool.uv]
+# win32 is not a supported dev/CI target (CI is ubuntu, dev is macOS). Excluding
+# it keeps `uv` from resolving a win32 split that became unsatisfiable when
+# opentelemetry-resourcedetector-gcp==1.13.0 was yanked from PyPI.
+environments = [
+    "sys_platform == 'linux'",
+    "sys_platform == 'darwin'",
+]
 override-dependencies = [
     "watchdog>=6.0.0",
     "typer>=0.4.1",
