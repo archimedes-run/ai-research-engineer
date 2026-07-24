@@ -80,3 +80,20 @@ Dropped: 22 (killer found) + 4 weak KEEPs (compositional_eval_gen,
 
 FRR computed against N=<N>. SIGNED_OFF: true.
 ```
+
+## Sign-off hygiene (run before committing a header change)
+
+The dataset header shape (`composition`, counts, `frr_denominator`, `SIGNED_OFF`)
+is asserted by `tests/unit/test_novelty_bench.py`. A loader-only sanity check
+(`load_dataset` + eyeballing) will **not** catch a stale assertion left behind by
+a header change — that surfaced once already (a sign-off updated the header but
+left the test asserting the prior N, and the suite went red one commit later).
+
+So when you change the signed-off header, run the bench unit tests before
+committing:
+
+```
+uv run pytest tests/unit/test_novelty_bench.py -q
+```
+
+Green suite is part of "signed off" — not a separate step.

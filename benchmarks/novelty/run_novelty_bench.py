@@ -2,7 +2,7 @@
 """Novelty benchmark harness (S2-7).
 
 Runs the full novelty engine (recall -> prefilter -> differentiate -> falsify)
-against KNOWN-50 (ground truth reject) and PLAUSIBLE-30 (ground truth approve)
+against KNOWN-50 (ground truth reject) and PLAUSIBLE (ground truth approve)
 and reports rejection recall, false-rejection rate, per-channel attribution,
 cost, and latency. Two modes:
 
@@ -11,6 +11,10 @@ cost, and latency. Two modes:
                       the pipeline plumbing end-to-end (not the quality numbers).
 
 Cost controls:
+  --dry-run            report estimated cost + KNOWN/PLAUSIBLE row breakdown for
+                       the current selection, then exit WITHOUT any LLM/search
+                       call. With --budget-usd, prints margin and exits nonzero
+                       if the estimate exceeds the cap (config sanity-check).
   --budget-usd CAP     halt cleanly at the cap; completed rows are persisted and
                        the result is marked status="budget_halted" (valid result).
   --subsample N        run N rows, --stratified keeps per-category proportions.
@@ -37,6 +41,10 @@ _RESULTS = _HERE / "results"
 
 CI_LITE_KNOWN = ["k_attention", "k_bert", "r_mamba", "c_llamacpp", "r_dpo"]
 CI_LITE_PLAUSIBLE = ["p_ctx_forgetting", "p_curriculum_from_loss_geometry", "p_crossmodal_grokking"]
+
+# --dry-run sanity-check only. NOT a price model: during a real run the cost
+# harness reports true per-row spend. $0.55 matches the budget-mode target.
+EXPECTED_COST_PER_ROW = 0.55
 
 _REQUIRED_KNOWN_FIELDS = ("id", "idea_title", "idea_description", "ground_truth", "killing_work", "category")
 _REQUIRED_PLAUSIBLE_FIELDS = ("id", "idea_title", "idea_description", "ground_truth", "confidence", "rationale")
@@ -278,9 +286,54 @@ def _print_summary(result: dict) -> None:
     print(f"KNOWN-50 rejection recall: {m['rejection_recall_known']}")
     for cat, s in m["per_category_recall"].items():
         print(f"  - {cat:<10} recall={s['recall']}  (n={s['n']})")
-    print(f"PLAUSIBLE-30 false-rejection rate: {m['false_rejection_rate_plausible']}")
+    print(f"PLAUSIBLE false-rejection rate: {m['false_rejection_rate_plausible']}")
     print(f"channel attribution: {m['channel_attribution']}")
     print(f"cost/idea=${m['cost_usd_per_idea']}  latency/idea={m['latency_s_per_idea']}s")
+
+
+# --------------------------------------------------------------------------- #
+# Dry-run — configuration sanity-check, no LLM / search / engine invoked
+# --------------------------------------------------------------------------- #
+def estimate_cost(rows: List[dict], expected_cost_per_row: float) -> dict:
+    """Coarse estimate: row count x a flat $/row. Deliberately NOT a per-row
+    price model — the cost harness gives the true number during a real run."""
+    n_known = sum(1 for r in rows if r.get("ground_truth") == "reject")
+    n_plausible = sum(1 for r in rows if r.get("ground_truth") == "approve")
+    return {
+        "rows": len(rows),
+        "n_known": n_known,
+        "n_plausible": n_plausible,
+        "expected_cost_per_row": expected_cost_per_row,
+        "estimated_total_usd": round(len(rows) * expected_cost_per_row, 2),
+    }
+
+
+def dry_run_report(
+    rows: List[dict],
+    mode: str,
+    model: str,
+    expected_cost_per_row: float,
+    budget_usd: Optional[float],
+) -> int:
+    """Print the estimate and return an exit code. Invokes no LLM, search, or
+    engine. With ``budget_usd``, prints projected margin and returns nonzero iff
+    the estimate exceeds the cap, so scripts can detect a misconfigured budget."""
+    est = estimate_cost(rows, expected_cost_per_row)
+    x = est["estimated_total_usd"]
+    print("\n=== Novelty benchmark — DRY RUN (no LLM or search invoked) ===")
+    print(f"mode={mode}  model={model}")
+    print(f"rows={est['rows']}  (KNOWN={est['n_known']}  PLAUSIBLE={est['n_plausible']})")
+    print(f"expected ${expected_cost_per_row:.2f}/row  ->  estimated total ${x:.2f}")
+    if budget_usd is not None:
+        y = float(budget_usd)
+        margin = round((y - x) / y * 100, 1) if y else 0.0
+        print(f"budget: estimated ${x:.2f} vs cap ${y:.2f}, margin {margin}%")
+        if x > y:
+            print(
+                f"!! DRY-RUN OVER BUDGET — estimated ${x:.2f} exceeds cap ${y:.2f}; raise --budget-usd or reduce rows"
+            )
+            return 1
+    return 0
 
 
 # --------------------------------------------------------------------------- #
@@ -294,24 +347,47 @@ def main() -> int:
     ap.add_argument("--stratified", action="store_true", help="keep per-category proportions when subsampling")
     ap.add_argument("--model-override", default=None, help="scorer+falsifier model (recorded in the header)")
     ap.add_argument("-k", type=int, default=3, help="prefiltered works / table rows (ci-lite default 3)")
+    ap.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="report estimated cost + row/mode breakdown for the current selection and exit; invokes no LLM or search",
+    )
+    ap.add_argument(
+        "--expected-cost-per-row",
+        type=float,
+        default=EXPECTED_COST_PER_ROW,
+        help=f"$/row used ONLY by --dry-run (default {EXPECTED_COST_PER_ROW})",
+    )
     args = ap.parse_args()
 
+    # Resolve the row selection for the current flags. This touches dataset files
+    # only — no LLM, no search, no engine construction.
     if args.ci_lite:
         rows = _ci_lite_rows()
-        engine = make_ci_lite_engine(k=args.k)
         model = args.model_override or "ci-lite-offline"
         mode = "ci-lite"
+        p_header = None
     else:
         _, known = load_dataset(_DATASETS / "known_50.jsonl")
         p_header, plausible = load_dataset(_DATASETS / "plausible_30.jsonl")
-        if not signed_off(p_header):
-            print("\n" + "!" * 72)
-            print("!! PLAUSIBLE-30 is DRAFT (SIGNED_OFF: false). Its false-rejection")
-            print("!! numbers are NOT valid until the maintainer signs off the dataset.")
-            print("!" * 72 + "\n")
         rows = known + plausible
         if args.subsample:
             rows = stratified_subsample(rows, args.subsample) if args.stratified else rows[: args.subsample]
+        model = args.model_override or "<live model set at CC-2.7>"
+        mode = "full"
+
+    # --dry-run: sanity-check configuration and exit BEFORE any engine exists.
+    if args.dry_run:
+        return dry_run_report(rows, mode, model, args.expected_cost_per_row, args.budget_usd)
+
+    if args.ci_lite:
+        engine = make_ci_lite_engine(k=args.k)
+    else:
+        if not signed_off(p_header):
+            print("\n" + "!" * 72)
+            print("!! PLAUSIBLE is DRAFT (SIGNED_OFF: false). Its false-rejection")
+            print("!! numbers are NOT valid until the maintainer signs off the dataset.")
+            print("!" * 72 + "\n")
         # Live engine construction is intentionally deferred (CC-2.7 runs it live).
         raise SystemExit("full (live) mode is not run here — see CC-2.7. Use --ci-lite for the offline plumbing run.")
 

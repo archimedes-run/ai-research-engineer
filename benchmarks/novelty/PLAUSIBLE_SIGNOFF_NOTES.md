@@ -155,3 +155,301 @@ run set is high-confidence only. The dataset now holds the **4 confident** rows
 | `p_selfhealing_datasets` | **Confident Learning / CleanLab** — model-flagged label-error detection + correction loop. Core-ish. |
 | `p_faithful_cot_reward` | "Making Reasoning Matter" (2402.13950) + hierarchical faithfulness-reward frameworks. Emerging/close. |
 | `p_grokking_control` | **Omnigrok** (ICLR 2023, weight-norm controls grokking) + "Spectral Entropy Collapse… Interventional Framework for Grokking" (2604.13123). Close. |
+
+## Rebuild sittings
+
+The maintainer completed Steps 1–2 of `PLAUSIBLE_REBUILD_PLAN.md` (subfield-first,
+memory-first proposal) across two sittings and handed off Steps 3–5. The two
+checkpoints below are the maintainer's search-screened outputs — the authoritative
+source for the assembled rows. They still received the repo's independent Phase 3
+verification pass (see "Phase 3 verification kills (Claude)" if any rows were
+killed) before sign-off.
+
+### Sitting 1 — learning-augmented algorithms + physics-informed neural operators
+
+Paired learning-augmented algorithms with physics-informed neural operators.
+Stopped at nine defensible rows rather than forcing a tenth: four LAA and five
+PINO candidates. These are search-screened survivors and should still receive
+the repo's final Semantic Scholar/arXiv verification pass before sign-off.
+
+#### Learning-augmented algorithms
+
+**p_laa_adaptive_advice_acquisition** — Searched adaptive prediction queries,
+partial predictions, query-based advice, paid advice. *Non-clairvoyant
+Scheduling with Partial Predictions* assumes predictions are available for a
+fixed budgeted subset; query-based online search fixes a query mechanism in
+advance. The proposed row lets the online algorithm **adaptively decide which
+individual predictions to purchase, at heterogeneous costs, based on its
+observed state**, while proving consistency, robustness, and a total-advice-cost
+bound. Closest work: Benomar et al., PMLR v235.
+
+**p_laa_drift_aware_calibrated_advice** — Searched calibrated predictions,
+uncertainty-quantified advice, temporal drift, nonstationary algorithms with
+predictions. Shen et al. use calibrated predictions for ski rental and
+scheduling; Sun et al. study uncertainty-quantified predictions; neither
+establishes competitive guarantees when calibration **deteriorates online under
+temporal distribution drift**. Target: an algorithm that detects local
+miscalibration, reduces trust automatically, and preserves a classical
+adversarial guarantee without restarting.
+
+**p_laa_performative_prediction_feedback** — Searched explicit predictors,
+predictors learned online, strategic environments, feedback between predictions
+and decisions. Explicit-predictor work updates the predictor as more input
+arrives but treats the underlying target sequence as externally generated. This
+row studies LAAs where **the algorithm's decisions change the future data used
+to train its predictor**, with guarantees relative to a stable performative
+equilibrium plus a worst-case fallback. Closest work: arXiv 2403.07413.
+
+**p_laa_private_online_advice_composition** — Searched differential privacy
+with LAAs, private predictors, repeated online advice. Existing LAA+privacy
+work addresses multiple-quantile release and improves private estimation using
+external predictors. This row targets **sequential online decisions whose
+repeatedly queried predictor is itself trained on private data**, jointly
+bounding competitive performance, cumulative privacy loss, and degradation
+from noisy private advice. Closest work: Khodak et al., PMLR v202.
+
+#### Physics-informed neural operators
+
+**p_pino_topology_changing_domains** — Searched geometry-aware, diffeomorphic,
+variable-domain, topology-changing neural operators. DNO and PI-GANO generalize
+across geometries by encoding or mapping variable domains but presume domains
+representable through compatible parameterizations. This row targets a PINO
+that generalizes across **actual topology changes — splitting, merging,
+appearing holes — without retraining or a shared diffeomorphic reference
+domain**. Closest work: arXiv 2402.12475.
+
+**p_pino_entropy_certified_shocks** — Searched hyperbolic conservation laws,
+shocks, weak solutions, entropy constraints, shock-preserving neural operators.
+LGNO improves localized discontinuity resolution via local/global branches and
+spectral penalties; standard neural operators smooth away shocks. The proposed
+method enforces a **discrete entropy inequality and conservation balance during
+physics-informed operator training**, providing a verifiable certificate that
+predictions converge to the admissible entropy solution rather than merely
+producing sharper empirical fronts. Closest work: LGNO, arXiv 2606.18221.
+
+**p_pino_certified_adaptive_collocation** — Searched adaptive sampling,
+collocation selection, residual refinement, PINO training. The 2026 PINO
+training study compares collocation strategies and identifies gradient
+conflicts and causal violations but gives no adaptive procedure tied to a
+posteriori operator-error guarantees. This row proposes selecting new
+collocation regions from a computable residual estimator until an
+**operator-level error certificate** is met uniformly across the parameter
+family. Closest work: arXiv 2606.06164.
+
+**p_pino_invariant_measure_preservation** — Searched long-time neural-operator
+rollout, chaotic PDEs, invariant measures, ergodic statistics, conservation.
+Current PINO work emphasizes trajectory error, residual satisfaction, or
+stable autoregressive rollout; even LGNO's long-time results focus on
+numerical dissipation and state accuracy. This row would train and evaluate a
+PINO to preserve the **invariant measure and long-horizon statistical
+observables of a chaotic PDE**, even after pointwise trajectory predictability
+is lost. Closest work: LGNO long-time results, arXiv 2606.18221.
+
+**p_pino_conditional_ood_coverage** — Searched physics-informed conformal
+prediction, neural-PDE uncertainty, parameter shift, domain shift. Calibrated
+physics-informed UQ provides marginal and joint coverage using PDE residuals
+as nonconformity scores. This row seeks **conditional coverage across
+PDE-parameter and geometry regimes, including explicit OOD parameter shifts**,
+with abstention when physics residuals cannot support the requested guarantee.
+Closest work: arXiv 2502.04406.
+
+#### Sitting-1 kills (memory + search)
+
+- LAAs using calibrated instance-level uncertainty → killed by *Algorithms with
+  Calibrated ML Predictions* and *Online Algorithms with Uncertainty-Quantified
+  Predictions* (PMLR v267).
+- LAAs choosing among multiple partially observed predictors → killed by the
+  2025 MTS result with bandit access to multiple predictors (PMLR v267).
+- Geometry-aware PINOs for variable domains → killed by DNO and PI-GANO
+  (arXiv 2402.12475).
+- Generic shock-preserving neural operators → too thin after LGNO; the surviving
+  row requires entropy admissibility and certification.
+- Generic PINO uncertainty quantification → killed by calibrated physics-informed
+  conformal prediction (arXiv 2502.04406).
+
+#### Sitting-1 self-assessment
+
+Strongest: p_pino_topology_changing_domains, p_pino_entropy_certified_shocks,
+p_laa_adaptive_advice_acquisition, p_laa_performative_prediction_feedback.
+Scrutinize most in verification: p_laa_private_online_advice_composition
+(three-axis differentiation).
+
+### Sitting 2 — protein-ML + MoE routing and expert specialization
+
+Stopped at eight defensible survivors: four protein-ML and four MoE. Combined
+with sitting 1, that yields 17 new rows.
+
+#### Protein-ML
+
+**p_protein_temporal_annotation_backtesting** — Searched protein-function
+prediction under temporal splits, evolving Gene Ontology labels, database-
+version drift, pretraining-aware evaluation. Existing work shows ordinary
+downstream splits can leak information from PLM pretraining; STAR-GO handles
+zero-shot prediction for unseen or newly introduced GO terms. This study
+performs **historical backtesting using only sequences, ontology version,
+annotations, and pretrained-model knowledge available at each past cutoff**,
+measuring whether apparent function-prediction progress survives realistic
+knowledge evolution. Closest work: Hermann et al., PMLR v261.
+
+**p_protein_causal_function_circuits** — Searched PLM interpretability, residue
+attribution, structural explanations, mutation explanation, causal
+interventions. Current work produces active-site explanations or mutation
+descriptions (SoftBlobGIN, MutaPLM); most applications remain evaluative or
+post hoc. This row requires **causal circuit validation inside a frozen PLM**:
+intervening on a small identified set of latent features must selectively
+alter a specified functional prediction while preserving unrelated structural
+and family predictions. Closest work: arXiv 2605.10985 (SoftBlobGIN).
+
+**p_protein_family_shift_selective_prediction** — Searched calibrated protein-
+function prediction, uncertainty under homology shift, novel-family detection,
+conformal protein prediction, abstention. Existing work emphasizes stronger
+family-centric representations and low-homology benchmarks; PoET-2 retrieves
+family-specific evolutionary constraints; recent allergen work evaluates novel
+proteins without close training homologs. Did not find a method providing
+**risk-controlled selective function prediction where the allowed error rate
+is maintained separately across previously unseen protein families**, rather
+than aggregate calibration or low-homology accuracy. Closest work: PoET-2
+(arXiv 2508.04724). *Maintainer note: scrutinize during verification —
+selective prediction under distribution shift is a broad neighboring
+literature; per-family conditional coverage is the load-bearing distinction.*
+
+**p_protein_counterfactual_mechanism_discrimination** — Searched mutation-effect
+prediction, counterfactual protein generation, mechanistic function prediction,
+mutations distinguishing alternative mechanisms. ProtREM and PoET-2 improve
+mutation scoring; MutaPLM generates explanations and desirable variants; these
+systems primarily predict fitness or describe effects. This row constructs
+**minimal counterfactual mutation sets chosen specifically to distinguish
+competing mechanistic hypotheses for the same protein**, then tests whether
+predictions and wet-lab outcomes identify the correct mechanism rather than
+merely ranking beneficial variants. Closest work: arXiv 2410.21127 (ProtREM).
+
+#### MoE routing and expert specialization
+
+**p_moe_specialization_intervention_map** — Searched expert specialization
+analysis, expert ablation, counterfactual routing, multilingual steering,
+causal expert attribution. Recent studies map language-specific experts and
+steer routing; counterfactual-routing work compares standard routes with
+equal-compute alternatives. This row builds a **causal expert-specialization
+map by swapping or suppressing individual experts across controlled minimal
+input pairs**, requiring predicted capability-specific effects to transfer
+across datasets rather than inferring specialization from routing frequency or
+correlational probes. Closest work: arXiv 2601.14050.
+
+**p_moe_router_regret_training** — Searched counterfactual routing, oracle
+routing, router-only optimization, routing regret, equal-compute alternatives.
+*When Are Experts Misrouted?* establishes that standard routes can be inferior
+to sampled equal-compute alternatives and shows gains from a limited router-
+only update. This row turns that observation into a training objective that
+**minimizes per-token routing regret against counterfactually evaluated
+alternative routes throughout training**, rather than diagnosing misrouting
+after the model is frozen. Closest work: arXiv 2605.07260.
+
+**p_moe_expert_retirement_certificate** — Searched MoE pruning, expert merging,
+redundancy detection, expert removal, specialization, dynamic expert
+allocation. Existing pruning/merging methods use utilization, similarity, or
+validation loss; recent work addresses continual-learning integration via
+transient experts. This row asks for an **expert-retirement certificate based
+on causal substitutability**: an expert may be removed only when other experts
+reproduce its effects across every discovered specialization slice — including
+rare-token and low-resource-language slices — with a quantified worst-case
+degradation bound. Certification of functional substitutability, not another
+pruning score. Closest work: arXiv 2605.20247 (CP-MoE).
+
+**p_moe_specialization_recovery_after_shift** — Searched continual MoE
+learning, domain adaptation, expert collapse, routing recovery, low-resource-
+language adaptation, specialization drift. CP-MoE reduces forgetting during
+sequential learning; bilingual continued pretraining can reverse deep-layer
+routing collapse. This study measures and controls **whether the original
+expert specialization *decomposition* is recoverable after a temporary
+distribution shift** — distinguishing models that regain task accuracy through
+a fundamentally different routing organization from models that restore the
+prior functional expert map. Closest work: arXiv 2605.20247 (CP-MoE).
+*Maintainer note: the load-bearing distinction is organizational recovery vs
+performance recovery — this must appear explicitly in idea_description, not
+only in rationale, or the row will be killed for the wrong reason.*
+
+#### Sitting-2 kills
+
+Protein-ML: zero-shot for new GO terms (STAR-GO); retrieval-conditioned family-
+specific function prediction (PoET-2); explain mutation effects in natural
+language (MutaPLM); structure-aware interpretable PLM function prediction
+(SoftBlobGIN); evaluate function prediction on low-homology proteins (too
+broad — modern studies make this a central evaluation dimension).
+
+MoE: uncertainty-aware Bayesian routing (Variational MoE Routing,
+arXiv 2603.09453); context-aware routing consistency (Similarity/Attention-
+Aware MoE and the July-2026 multi-level-context routing paper,
+arXiv 2505.00792); analyze and improve multilingual expert specialization
+(multilingual routing-and-steering study, arXiv 2601.14050); MoE routing to
+prevent continual-learning forgetting (CP-MoE); detect routing collapse in
+low-resource languages (low-resource MoE study, arXiv 2605.17598); generic
+counterfactual analysis of correct token routing (*When Are Experts
+Misrouted?*, arXiv 2605.07260).
+
+#### Sitting-2 self-assessment
+
+Strongest: p_protein_temporal_annotation_backtesting,
+p_protein_causal_function_circuits, p_moe_router_regret_training,
+p_moe_expert_retirement_certificate. Scrutinize most in verification:
+p_protein_family_shift_selective_prediction (broad neighboring literature),
+p_moe_specialization_recovery_after_shift (novelty hinges on organizational
+distinction — description must carry it).
+
+#### Final composition (maintainer projection, pre-verification)
+
+| Subfield                          |    New survivors |
+| --------------------------------- | ---------------: |
+| Learning-augmented algorithms     |                4 |
+| Physics-informed neural operators |                5 |
+| Protein ML                        |                4 |
+| MoE routing and specialization    |                4 |
+| **Total new**                     |           **17** |
+| Retained confident rows           |                4 |
+| **Projected dataset**             | **PLAUSIBLE-21** |
+
+### Phase 3 verification kills (Claude)
+
+Independent per-row Semantic Scholar + arXiv verification (2026-07-24), ~3
+paraphrases per row targeting the *core* contribution (not the maintainer's
+framing), biased to 2024–2026. Rule: a paper doing the row's core that is NOT
+named in the rationale = new killer → drop the row. **15/17 survived; 2 killed.**
+
+| row id | killer paper (not named in rationale) | one-sentence reason the core matches |
+| --- | --- | --- |
+| `p_pino_invariant_measure_preservation` | *Beyond Closure Models: Learning Chaotic Systems via Physics-Informed Neural Operators* (arXiv 2408.05177), building on *Training neural operators to preserve invariant measures of chaotic attractors* (arXiv 2306.01187, NeurIPS 2023) | 2408.05177 is a **physics-informed neural operator** whose stated goal is to "evaluate the long-term statistics instead of tracking any individual trajectory" and that "provably approximate[s] the long-term statistics"/invariant measures of chaotic PDEs past the point of trajectory divergence — exactly this row's core; the rationale named only LGNO and missed the invariant-measure line entirely. |
+| `p_protein_causal_function_circuits` | *Mechanistic evidence that motif-gated domain recognition drives contact prediction in protein language models* (bioRxiv 2025.08.22.671739), reinforced by *Interpretable enzyme function prediction via SAE features of ESMC* (arXiv 2606.12209) | 671739 does **causal circuit validation inside a frozen PLM** (ESM-2) via causal activation patching on a small *necessary* set of SAE latents that drives a downstream prediction — the row's core mechanism — refuting the rationale's premise that PLM interpretability "remain[s] evaluative or post hoc"; the residual function-vs-structure + selectivity gap is too thin to defend as a distinct core (Part E: do not soften a search-flagged rationale — drop). |
+
+**Notes on close survivors (adjacent, kept; recorded for the differentiation table):**
+- `p_pino_entropy_certified_shocks` — WE-PINNs (arXiv 2603.24819) already enforces
+  a discrete Kružkov entropy inequality + weak conservation with an L¹ convergence
+  certificate, but as a **single-instance PINN**, not an operator; the operator+certificate
+  intersection is unoccupied, so the row survives but at **medium** (the certificate
+  *mechanism* is published; only the operator lift remains).
+- `p_protein_temporal_annotation_backtesting` — LAFA (arXiv 2604.20782) is a
+  longitudinal protein-function-annotation backtest but controls only the
+  annotation-data cutoff, **not** the pretrained model's knowledge cutoff; the
+  row survives on the model-knowledge-rollback element (made load-bearing in
+  `idea_description`) but at **medium**.
+- `p_moe_specialization_intervention_map` — *The Expert Strikes Back* (arXiv 2604.02178)
+  causally validates expert specialization on standard top-k MoE but on a single
+  dataset without the cross-dataset-transfer requirement; adjacent, kept at medium.
+- `p_laa_performative_prediction_feedback` — *The Stability of Online Algorithms in
+  Performative Prediction* (arXiv 2602.24207) gives performative-equilibrium
+  convergence for no-regret learners, but lacks the learning-augmented
+  (advice/consistency-robustness) structure and worst-case fallback; adjacent, kept.
+- `p_laa_private_online_advice_composition` — LAPRAS (arXiv 2605.01960) uses
+  predictions *about future queries* to lower DP loss in linear-query-stream
+  release (the multiple-quantile lineage already named); the predictor is not
+  trained on private data; adjacent, kept at medium.
+
+### Phase 3 verified composition (post-verification)
+
+| Subfield                          | Survivors |
+| --------------------------------- | --------: |
+| Learning-augmented algorithms     |         4 |
+| Physics-informed neural operators |         4 |
+| Protein ML                        |         3 |
+| MoE routing and specialization    |         4 |
+| **Total new (verified)**          |    **15** |
+| Retained confident rows           |         4 |
+| **Signed-off dataset**            | **PLAUSIBLE-19** |

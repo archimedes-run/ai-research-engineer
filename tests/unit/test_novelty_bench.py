@@ -30,16 +30,25 @@ def test_known_50_schema_and_composition():
     assert all(len(r["idea_description"]) > 40 for r in rows)
 
 
-def test_plausible_dataset_signed_off_small_n_with_caveat():
+def test_plausible_dataset_signed_off_n19_subfield_rebuild():
     header, rows = B.load_dataset(_DATASETS / "plausible_30.jsonl")
-    # Signed off at N=5 (4 confident + 1 rebuild survivor) per maintainer
-    # authorization. 22 rows had prior art; an 18-candidate rebuild netted 1
-    # survivor (~5%). N is small, so the header must carry the interpretability
-    # caveat + provenance so the FRR is never reported bare.
+    # Rebuilt subfield-first / memory-first / then-verified (see
+    # PLAUSIBLE_REBUILD_PLAN.md + PLAUSIBLE_SIGNOFF_NOTES.md): 17 maintainer
+    # candidates -> 2 killed in Phase-3 verification -> 15 new + 4 retained = 19.
+    # The header composition must be internally consistent so the FRR is never
+    # reported against a different N than the file actually holds.
     assert B.signed_off(header) is True
-    assert header.get("signed_off_count") == len(rows) == 5
-    assert "LOW" in header.get("frr_interpretability", "")   # small-N caveat is structural
-    assert "search-verified" in header.get("provenance", "")  # honest provenance recorded
+    comp = header.get("composition", {})
+    assert comp.get("total") == len(rows) == 19
+    assert header.get("frr_denominator") == 19
+    new_rows = (
+        comp["learning_augmented_algorithms"]
+        + comp["physics_informed_neural_operators"]
+        + comp["protein_ml"]
+        + comp["moe_routing"]
+    )
+    assert new_rows == 15 and comp["retained_original"] == 4  # 15 new + 4 retained
+    assert "verified" in header.get("signoff_process", "")  # honest provenance recorded
     assert B.validate_rows(rows, "plausible") == []
     assert all(r.get("rationale") and r.get("confidence") for r in rows)
 
@@ -186,3 +195,68 @@ def test_model_recorded_in_result_header():
     assert result["mode"] == "full"
     assert result["budget_usd"] == 5.0
     assert "metrics" in result
+
+
+# --------------------------------------------------------------------------- #
+# --dry-run — estimate the cost/rows, invoke NOTHING
+# --------------------------------------------------------------------------- #
+def _raise_on_invoke(*_a, **_k):
+    raise AssertionError("an LLM / search / engine seam was invoked during --dry-run")
+
+
+def _seal_all_seams(monkeypatch):
+    """Make every engine/LLM/search entry point raise if touched, so a passing
+    --dry-run proves zero calls were made."""
+    monkeypatch.setattr(B, "run_benchmark", _raise_on_invoke)
+    monkeypatch.setattr(B, "make_ci_lite_engine", _raise_on_invoke)
+
+
+def _run_main(monkeypatch, *argv):
+    import sys
+
+    monkeypatch.setattr(sys, "argv", ["run_novelty_bench.py", *argv])
+    return B.main()
+
+
+def test_dry_run_estimates_without_invoking_any_llm(monkeypatch, capsys):
+    _seal_all_seams(monkeypatch)
+    rc = _run_main(monkeypatch, "--dry-run")
+    out = capsys.readouterr().out
+    assert rc == 0  # exits clean, no calls raised
+    # full selection = 50 KNOWN + 19 PLAUSIBLE = 69 rows; estimate = 69 * $0.55
+    assert "DRY RUN" in out and "no LLM or search invoked" in out
+    assert "rows=69" in out and "KNOWN=50" in out and "PLAUSIBLE=19" in out
+    assert "$37.95" in out  # 69 * 0.55, reported without any real pricing
+
+
+def test_dry_run_budget_within_cap_exits_zero_with_margin(monkeypatch, capsys):
+    _seal_all_seams(monkeypatch)
+    rc = _run_main(monkeypatch, "--dry-run", "--budget-usd", "100")
+    out = capsys.readouterr().out
+    assert rc == 0  # estimate $37.95 < cap $100 -> healthy
+    assert "estimated $37.95 vs cap $100.00" in out and "margin" in out
+    assert "OVER BUDGET" not in out
+
+
+def test_dry_run_budget_below_estimate_exits_nonzero_with_warning(monkeypatch, capsys):
+    _seal_all_seams(monkeypatch)
+    rc = _run_main(monkeypatch, "--dry-run", "--budget-usd", "10")
+    out = capsys.readouterr().out
+    assert rc != 0  # estimate $37.95 > cap $10 -> misconfiguration, detectable exit code
+    assert "OVER BUDGET" in out and "exceeds cap $10.00" in out
+
+
+def test_dry_run_expected_cost_per_row_override(monkeypatch, capsys):
+    _seal_all_seams(monkeypatch)
+    rc = _run_main(monkeypatch, "--dry-run", "--expected-cost-per-row", "1.00")
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "$69.00" in out  # 69 rows * $1.00 override
+
+
+def test_dry_run_ci_lite_selection(monkeypatch, capsys):
+    _seal_all_seams(monkeypatch)
+    rc = _run_main(monkeypatch, "--ci-lite", "--dry-run")
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "rows=8" in out and "KNOWN=5" in out and "PLAUSIBLE=3" in out  # ci-lite selection

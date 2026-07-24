@@ -3,6 +3,10 @@
 - Commit locally after completing each task prompt. NEVER push to any remote.
 - When a strict-xfail sabotage test starts xpassing after your change, remove
   its marker in the same commit as the feature.
+- Backend-lint (`ruff check .`) is reported but not currently a required check,
+  due to a pre-existing backlog. Do not introduce new lint errors, but do not
+  fix pre-existing ones opportunistically inside feature commits — clear them in
+  a dedicated lint-backlog PR.
 
 ## graphify
 
