@@ -36,7 +36,7 @@ _DATASETS = _HERE / "datasets"
 _RESULTS = _HERE / "results"
 
 CI_LITE_KNOWN = ["k_attention", "k_bert", "r_mamba", "c_llamacpp", "r_dpo"]
-CI_LITE_PLAUSIBLE = ["p_ctx_forgetting", "p_tool_error_recovery", "p_units_aware_reasoning"]
+CI_LITE_PLAUSIBLE = ["p_ctx_forgetting", "p_curriculum_from_loss_geometry", "p_crossmodal_grokking"]
 
 _REQUIRED_KNOWN_FIELDS = ("id", "idea_title", "idea_description", "ground_truth", "killing_work", "category")
 _REQUIRED_PLAUSIBLE_FIELDS = ("id", "idea_title", "idea_description", "ground_truth", "confidence", "rationale")

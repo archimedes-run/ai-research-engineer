@@ -30,13 +30,17 @@ def test_known_50_schema_and_composition():
     assert all(len(r["idea_description"]) > 40 for r in rows)
 
 
-def test_plausible_30_is_draft_until_signed_off():
+def test_plausible_dataset_signed_off_small_n_with_caveat():
     header, rows = B.load_dataset(_DATASETS / "plausible_30.jsonl")
-    assert len(rows) == 30
+    # Signed off at N=5 (4 confident + 1 rebuild survivor) per maintainer
+    # authorization. 22 rows had prior art; an 18-candidate rebuild netted 1
+    # survivor (~5%). N is small, so the header must carry the interpretability
+    # caveat + provenance so the FRR is never reported bare.
+    assert B.signed_off(header) is True
+    assert header.get("signed_off_count") == len(rows) == 5
+    assert "LOW" in header.get("frr_interpretability", "")   # small-N caveat is structural
+    assert "search-verified" in header.get("provenance", "")  # honest provenance recorded
     assert B.validate_rows(rows, "plausible") == []
-    # DRAFT gate: header present, SIGNED_OFF false -> harness must warn/not report.
-    assert header.get("dataset") == "plausible_30"
-    assert B.signed_off(header) is False
     assert all(r.get("rationale") and r.get("confidence") for r in rows)
 
 
