@@ -3,6 +3,44 @@
 
 # Biomedical Research Methodology Guidelines
 
+## Bioinformatics Planning Heuristics
+
+Use these checks when turning a biological question into an executable computational plan:
+
+- Define the biological unit of analysis first: sample, read, contig, gene, transcript, variant, protein, or biosynthetic gene cluster.
+- Freeze the reference genome, annotation release, taxonomy database, and software versions before comparing results.
+- Separate exploratory discovery from confirmatory evaluation; do not use the same data to select and validate a candidate.
+- Choose a strong domain baseline before introducing a new model or ranking method. Examples include BLAST for sequence similarity, BUSCO for assembly completeness, GATK best-practice workflows for small variants, and established differential-expression methods for RNA-seq.
+- Make the pipeline reproducible with Snakemake, Nextflow, or an equivalent workflow engine. Record parameters, random seeds, input checksums, and resource limits.
+- For statistical analyses, predefine the unit of replication, covariates, effect size, confidence interval, and multiple-testing correction.
+- For plant and natural-product studies, preserve species, tissue, developmental stage, treatment, ploidy, and environmental metadata because these can change biological interpretation.
+
+## Bioinformatics Review Checklist
+
+Before approving a computational result, verify:
+
+- [ ] Input files, sample metadata, reference builds, and database versions are identified.
+- [ ] Quality control thresholds and excluded samples are reported before downstream interpretation.
+- [ ] Train, validation, test, or discovery/confirmation boundaries prevent data leakage.
+- [ ] The proposed method is compared with an appropriate established baseline.
+- [ ] Biological replicates are not confused with technical replicates or sequencing depth.
+- [ ] Normalization, batch correction, and covariate handling are justified.
+- [ ] Multiple comparisons are controlled where many genes, variants, domains, or clusters are tested.
+- [ ] Coordinates, identifiers, evidence sources, and software versions are traceable.
+- [ ] Results include uncertainty and limitations rather than only a ranked list or p-value.
+- [ ] A clean-environment rerun can reproduce the reported tables and figures.
+
+## Common Bioinformatics Pitfall Warnings
+
+- **Reference mismatch:** Coordinates or annotations from different genome builds can create false differences.
+- **Metadata leakage:** Sample labels, batch identifiers, or post hoc quality decisions can leak into model evaluation.
+- **Pseudo-replication:** Treating technical reads or technical replicates as independent biological samples inflates significance.
+- **Database drift:** A result can change when BLAST, Pfam, MIBiG, or other reference databases are updated; record the release.
+- **Threshold hunting:** Repeatedly changing coverage, identity, expression, or cluster-scoring thresholds without held-out validation overstates confidence.
+- **Function overclaiming:** Sequence similarity or a domain hit supports a hypothesis; it does not by itself prove biochemical activity.
+- **Batch correction overreach:** Removing batch effects can also remove real biology when experimental design is confounded.
+- **Incomplete negative evidence:** Failure to detect a gene, pathway, or cluster may reflect sequencing depth, assembly gaps, or database coverage.
+
 ## Research Workflow Standards
 
 ### Phase 1: Literature Review & Hypothesis Development

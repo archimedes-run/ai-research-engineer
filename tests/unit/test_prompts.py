@@ -38,6 +38,30 @@ class TestLoadPrompt:
             result = load_prompt("idea_generator", domain)
             assert isinstance(result, str), f"Failed for domain: {domain}"
 
+    def test_bioinformatics_prompt_includes_domain_planning_and_review_rules(self):
+        result = load_prompt("plan_maker", "bioinformatics").lower()
+        for term in (
+            "snakemake",
+            "nextflow",
+            "blast",
+            "gatk",
+            "data leakage",
+            "multiple comparisons",
+            "function overclaiming",
+        ):
+            assert term in result
+
+    def test_bioinformatics_interactive_prompt_is_not_a_placeholder(self):
+        from pathlib import Path
+
+        import ai_research_engineer.prompts as prompts_pkg
+
+        path = Path(prompts_pkg.__file__).parent / "domain" / "bioinformatics" / "interactive_base.md"
+        content = path.read_text(encoding="utf-8").lower()
+        assert "[to be filled" not in content
+        assert "reference build" in content
+        assert "raw inputs immutable" in content
+
 
 class TestConditionalToolSections:
     """S0-7: <!-- BEGIN:graphify -->..<!-- END:graphify --> blocks are dropped
